@@ -4,6 +4,12 @@ This project is a multi-tier web application implementing an **Application Submi
 
 ## Features & Requirements Met
 
+Once running on Render:
+- **React Frontend**: Access at https://smartflow3-sy5c.onrender.com
+- **Go API Server**: Listening at https://smartflow3-sy5c.onrender.com
+- **Postgres Database**: Hosted on Render PostgreSQL
+
+
 1. **Authentication & Roles**:
    - Applicant (`applicant@test.com` / `password123`)
    - Reviewer (`reviewer@test.com` / `password123`)
@@ -78,10 +84,13 @@ To start the database, backend API, and React frontend simultaneously, run:
 docker-compose up --build
 ```
 
-Once running:
+Once running locally:
 - **React Frontend**: Access at [http://localhost:3000](http://localhost:3000)
 - **Go API Server**: Listening at [http://localhost:8080](http://localhost:8080)
 - **Postgres Database**: Port `5432`
+
+Deployments:
+- **Render Live URL**: https://smartflow3-sy5c.onrender.com
 
 ---
 
