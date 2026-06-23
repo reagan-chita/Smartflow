@@ -3005,20 +3005,7 @@ function LoginForm({ onLogin }) {
         {loading ? 'Signing in...' : 'Sign In'}
       </button>
 
-      <div className="border-t border-white/5 pt-5 text-center space-y-3">
-        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Quick Fill Test Accounts:</div>
-        <div className="flex gap-2 justify-center">
-          <button type="button" className="bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 rounded-lg text-xs font-semibold py-1.5 px-3 transition-colors cursor-pointer" onClick={() => fillCredentials('applicant')}>
-            Applicant
-          </button>
-          <button type="button" className="bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 rounded-lg text-xs font-semibold py-1.5 px-3 transition-colors cursor-pointer" onClick={() => fillCredentials('reviewer')}>
-            Reviewer
-          </button>
-          <button type="button" className="bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 rounded-lg text-xs font-semibold py-1.5 px-3 transition-colors cursor-pointer" onClick={() => fillCredentials('superuser')}>
-            Super User
-          </button>
-        </div>
-      </div>
+
     </form>
   );
 }
