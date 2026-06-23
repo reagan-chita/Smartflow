@@ -4,11 +4,11 @@ This project is a multi-tier web application implementing an **Application Submi
 
 ## Features & Requirements Met
 
-Once running on Render:
-- **React Frontend**: Access at https://smartflow3-sy5c.onrender.com
-- **Go API Server**: Listening at https://smartflow3-sy5c.onrender.com
-- **Postgres Database**: Hosted on Render PostgreSQL
+Once running:
 
+- **React Frontend**: Access at <https://smartflow3-sy5c.onrender.com>
+- **Go API Server**: Listening at <https://smartflow3-sy5c.onrender.com>
+- **Postgres Database**: Port `5432`
 
 1. **Authentication & Roles**:
    - Applicant (`applicant@test.com` / `password123`)
@@ -84,19 +84,20 @@ To start the database, backend API, and React frontend simultaneously, run:
 docker-compose up --build
 ```
 
-Once running locally:
-- **React Frontend**: Access at [http://localhost:3000](http://localhost:3000)
-- **Go API Server**: Listening at [http://localhost:8080](http://localhost:8080)
+Once running:
+
+- **React Frontend**: Access at <https://smartflow3-sy5c.onrender.com>
+- **Go API Server**: Listening at <https://smartflow3-sy5c.onrender.com>
 - **Postgres Database**: Port `5432`
 
-Deployments:
-- **Render Live URL**: https://smartflow3-sy5c.onrender.com
+- **Available at your primary URL <https://smartflow3-sy5c.onrender.com>
 
----
+--
 
 ## Quick Testing Guide
 
 We have added a **Quick Fill** shortcut at the bottom of the login page.
+
 1. Click **Applicant** (fills `applicant@test.com` / `password123`) and sign in.
    - Click **New Application** and create a draft request.
    - Click the application row, inspect the details, and click **Submit Application**.
@@ -112,9 +113,12 @@ We have added a **Quick Fill** shortcut at the bottom of the login page.
 ## Running Automated Tests
 
 To execute the backend testing suites locally:
+
 1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432` with username `postgres`, password `postgres` and database `workflow_db`.
 2. Run the test command in the project root:
+
    ```bash
    go test -v ./...
    ```
+
 *(If PostgreSQL is not running locally, database-linked integration tests will automatically skip and the suite will pass safely).*
