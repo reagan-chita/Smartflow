@@ -22,33 +22,42 @@ import (
 func main() {
 	log.Println("Starting Submission & Approval Workflow backend...")
 
-	// Database configuration from environment variables
-	dbHost := getEnv("DB_HOST", "localhost")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "postgres")
-	dbPass := getEnv("DB_PASSWORD", "postgres")
-	dbName := getEnv("DB_NAME", "workflow_db")
-	dbSSL := getEnv("DB_SSLMODE", "disable")
-
-	// Ensure the workflow_db database exists on host
+	var connStr string
 	var err error
-	for i := 0; i < 15; i++ {
-		log.Printf("Checking and preparing database %s (attempt %d/15)...", dbName, i+1)
-		err = ensureDatabaseExists(dbHost, dbPort, dbUser, dbPass, dbName, dbSSL)
-		if err == nil {
-			log.Println("Database exists or has been created successfully.")
-			break
+	var dbName string
+
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		log.Println("Using DATABASE_URL from environment variables for database connection.")
+		connStr = dbURL
+		dbName = "production"
+	} else {
+		// Database configuration from environment variables
+		dbHost := getEnv("DB_HOST", "localhost")
+		dbPort := getEnv("DB_PORT", "5432")
+		dbUser := getEnv("DB_USER", "postgres")
+		dbPass := getEnv("DB_PASSWORD", "postgres")
+		dbName = getEnv("DB_NAME", "workflow_db")
+		dbSSL := getEnv("DB_SSLMODE", "disable")
+
+		// Ensure the workflow_db database exists on host
+		for i := 0; i < 15; i++ {
+			log.Printf("Checking and preparing database %s (attempt %d/15)...", dbName, i+1)
+			err = ensureDatabaseExists(dbHost, dbPort, dbUser, dbPass, dbName, dbSSL)
+			if err == nil {
+				log.Println("Database exists or has been created successfully.")
+				break
+			}
+			log.Printf("Database preparation failed: %v. Retrying in 2 seconds...", err)
+			time.Sleep(2 * time.Second)
 		}
-		log.Printf("Database preparation failed: %v. Retrying in 2 seconds...", err)
-		time.Sleep(2 * time.Second)
-	}
 
-	if err != nil {
-		log.Fatalf("Could not prepare database: %v", err)
-	}
+		if err != nil {
+			log.Fatalf("Could not prepare database: %v", err)
+		}
 
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		dbHost, dbPort, dbUser, dbPass, dbName, dbSSL)
+		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+			dbHost, dbPort, dbUser, dbPass, dbName, dbSSL)
+	}
 
 	var db *sql.DB
 
