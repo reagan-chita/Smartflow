@@ -2957,19 +2957,6 @@ function LoginForm({ onLogin }) {
     setLoading(false);
   };
 
-  const fillCredentials = (role) => {
-    if (role === 'applicant') {
-      setEmail('applicant@test.com');
-      setPassword('password123');
-    } else if (role === 'reviewer') {
-      setEmail('reviewer@test.com');
-      setPassword('password123');
-    } else if (role === 'superuser') {
-      setEmail('superuser@test.com');
-      setPassword('password123');
-    }
-  };
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-1.5">
@@ -3000,33 +2987,6 @@ function LoginForm({ onLogin }) {
       <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer" disabled={loading}>
         {loading ? 'Signing in...' : 'Sign In'}
       </button>
-
-      <div className="pt-4 border-t border-white/5 space-y-2">
-        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Quick Fill Credentials</div>
-        <div className="flex gap-2 justify-center">
-          <button
-            type="button"
-            onClick={() => fillCredentials('applicant')}
-            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
-          >
-            Applicant
-          </button>
-          <button
-            type="button"
-            onClick={() => fillCredentials('reviewer')}
-            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
-          >
-            Reviewer
-          </button>
-          <button
-            type="button"
-            onClick={() => fillCredentials('superuser')}
-            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
-          >
-            Super User
-          </button>
-        </div>
-      </div>
     </form>
   );
 }

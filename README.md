@@ -95,13 +95,11 @@ Once running:
 
 ## Quick Testing Guide
 
-We have added a **Quick Fill** shortcut at the bottom of the login page.
-
-1. Click **Applicant** (fills `applicant@test.com` / `password123`) and sign in.
+1. Sign in as an **Applicant** using email `applicant@test.com` and password `password123`.
    - Click **New Application** and create a draft request.
    - Click the application row, inspect the details, and click **Submit Application**.
    - Notice that you can no longer edit the details. Log out.
-2. Click **Reviewer** (fills `reviewer@test.com` / `password123`) and sign in.
+2. Sign in as a **Reviewer** using email `reviewer@test.com` and password `password123`.
    - Notice the application in the queue. Click on it.
    - Click **Start Active Review** (status changes from SUBMITTED to UNDER_REVIEW).
    - Enter a comment in the feedback box and click **Return** (or **Reject** or **Approve**).
@@ -205,7 +203,6 @@ erDiagram
 * **Usage**:
   * **Scaffolding**: Used to generate standard structures, initial SQL schema setup, and standard backend routing configurations.
   * **Code Refactoring & Bug Fixing**:
-    * Assisted in refactoring the login form to add Quick Fill credentials buttons, ensuring ease of validation.
     * Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
   * **Testing**: Generated boilerplate integration tests and validated authorization checks.
 * **Manual Verification**:

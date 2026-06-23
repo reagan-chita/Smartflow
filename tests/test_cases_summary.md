@@ -39,7 +39,7 @@ These manual tests check the user interface flows in [App.jsx](../frontend/src/A
 ### E2E Flow 1: Applicant Draft Lifecycle
 * **Objective**: Confirm Applicants can manage their applications before submission.
 * **Steps**:
-  1. Open http://localhost:5173/ and click **Applicant** (Quick Fill) and sign in.
+  1. Open http://localhost:5173/ and sign in as an Applicant (email: applicant@test.com, password: password123).
   2. Click **New Application**, fill in "Project Alpha", select a category, and input `$1,500`. Upload a test PDF file. Click **Save**.
   3. Verify the application appears in the dashboard list with a `DRAFT` badge and paperclip icon.
   4. Click the row. Verify the edit modal opens pre-filled.
@@ -59,7 +59,7 @@ These manual tests check the user interface flows in [App.jsx](../frontend/src/A
 ### E2E Flow 3: Reviewer Process (Start Review $\rightarrow$ Return for Changes)
 * **Objective**: Verify that Reviewers can transition submissions and provide feedback comments.
 * **Steps**:
-  1. Log out as Applicant and sign in as **Reviewer** (Quick Fill).
+  1. Log out as Applicant and sign in as a Reviewer (email: reviewer@test.com, password: password123).
   2. Inspect the Review Queue. Verify "Project Beta" is visible under the `Submitted` filter.
   3. Click the row. Verify the detail page displays the details, attachment download button, and a **Start Active Review** button.
   4. Click **Start Active Review**. Verify status updates to `UNDER_REVIEW` (orange glow).
