@@ -1,30 +1,30 @@
-# Stage 1: Build the Go binary
+# Stage 1: Build
 FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency manifests
+RUN apk add --no-cache git
+
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY backend/ ./backend
-COPY migrations/ ./migrations
+COPY . .
 
-# Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o main ./backend/cmd/main.go
 
-# Stage 2: Run stage
+
+# Stage 2: Run
 FROM alpine:3.19
 
 WORKDIR /app
 
-# Copy the binary and migrations
+RUN apk add --no-cache ca-certificates
+
 COPY --from=builder /app/main .
 COPY --from=builder /app/migrations ./migrations
 
-# Expose port
+# Render uses dynamic port
+ENV PORT=8080
 EXPOSE 8080
 
-# Run the binary
 CMD ["./main"]
