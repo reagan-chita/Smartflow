@@ -1051,11 +1051,7 @@ export default function App() {
   };
 
   const handleRowClick = (app) => {
-    if (app.status === 'DRAFT' || app.status === 'RETURNED') {
-      handleOpenEditForm(app);
-    } else {
-      handleSelectApp(app.id);
-    }
+    handleSelectApp(app.id);
   };
 
   // Actions transitions
@@ -3005,7 +3001,32 @@ function LoginForm({ onLogin }) {
         {loading ? 'Signing in...' : 'Sign In'}
       </button>
 
-
+      <div className="pt-4 border-t border-white/5 space-y-2">
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Quick Fill Credentials</div>
+        <div className="flex gap-2 justify-center">
+          <button
+            type="button"
+            onClick={() => fillCredentials('applicant')}
+            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
+          >
+            Applicant
+          </button>
+          <button
+            type="button"
+            onClick={() => fillCredentials('reviewer')}
+            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
+          >
+            Reviewer
+          </button>
+          <button
+            type="button"
+            onClick={() => fillCredentials('superuser')}
+            className="px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 border border-white/5 text-[11px] font-semibold text-indigo-300 transition-colors cursor-pointer"
+          >
+            Super User
+          </button>
+        </div>
+      </div>
     </form>
   );
 }

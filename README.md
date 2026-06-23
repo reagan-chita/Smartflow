@@ -2,13 +2,14 @@
 
 This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It features a **Go backend** (powered by `go-chi` and PostgreSQL), a modern **Vite React SPA frontend** (styled with Tailwind CSS v4 and glassmorphism), and is fully containerized using **Docker** and **Docker Compose**.
 
+## Hosted / Deployed URL
+
+The project is deployed and live at:
+* **Live Portal URL**: <https://smartflow3-sy5c.onrender.com>
+
+---
+
 ## Features & Requirements Met
-
-Once running:
-
-- **React Frontend**: Access at <https://smartflow3-sy5c.onrender.com>
-- **Go API Server**: Listening at <https://smartflow3-sy5c.onrender.com>
-- **Postgres Database**: Port `5432`
 
 1. **Authentication & Roles**:
    - Applicant (`applicant@test.com` / `password123`)
@@ -86,13 +87,11 @@ docker-compose up --build
 
 Once running:
 
-- **React Frontend**: Access at <https://smartflow3-sy5c.onrender.com>
-- **Go API Server**: Listening at <https://smartflow3-sy5c.onrender.com>
+- **React Frontend**: Access at `http://localhost:3000`
+- **Go API Server**: Listening at `http://localhost:8080`
 - **Postgres Database**: Port `5432`
 
-- **Available at your primary URL <https://smartflow3-sy5c.onrender.com>
-
---
+---
 
 ## Quick Testing Guide
 
@@ -110,15 +109,107 @@ We have added a **Quick Fill** shortcut at the bottom of the login page.
 
 ---
 
+---
+
 ## Running Automated Tests
 
 To execute the backend testing suites locally:
 
-1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432` with username `postgres`, password `postgres` and database `workflow_db`.
+1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432` (or set the `DB_PASSWORD` environment variable if your database has a different password).
 2. Run the test command in the project root:
 
    ```bash
-   go test -v ./...
+   $env:DB_PASSWORD="your_password"; go test -v ./...
    ```
 
-*(If PostgreSQL is not running locally, database-linked integration tests will automatically skip and the suite will pass safely).*
+*(If PostgreSQL is not running or accessible, database-linked integration tests will automatically skip and the suite will pass safely).*
+
+---
+
+## Data Model & Key Design Decisions
+
+The application maps its entities across a relational schema in PostgreSQL for strict consistency:
+
+### 1. Schema Structure
+```mermaid
+erDiagram
+    USERS {
+        int id PK
+        string name
+        string email UK
+        string password_hash
+        string role
+        text permissions
+        timestamp created_at
+    }
+    ROLES {
+        int id PK
+        string name UK
+        text permissions
+    }
+    APPLICATIONS {
+        int id PK
+        string title
+        string category
+        string description
+        numeric amount
+        string status
+        int owner_id FK
+        string attachment_name
+        text attachment_data
+        timestamp created_at
+    }
+    AUDIT_LOGS {
+        int id PK
+        int application_id FK
+        int user_id FK
+        string old_status
+        string new_status
+        text comment
+        timestamp created_at
+    }
+    NOTIFICATIONS {
+        int id PK
+        int user_id FK
+        string title
+        text message
+        boolean is_read
+        timestamp created_at
+    }
+
+    USERS ||--o{ APPLICATIONS : owns
+    USERS ||--o{ AUDIT_LOGS : performs
+    USERS ||--o{ NOTIFICATIONS : receives
+    APPLICATIONS ||--o{ AUDIT_LOGS : changes
+```
+
+### 2. Design Decisions
+* **PostgreSQL Relational Mapping**: Relational mapping is critical for this workflow to enforce foreign keys (e.g., linking applications and audit logs with cascading deletes).
+* **Fine-Grained Permissions & Role Checks**: The system maps roles (`applicant`, `reviewer`, `superuser`) to default permission sets in the `roles` table. The backend checks permission strings (e.g. `applications:create`, `applications:review`) loaded dynamically from the database on every mutation request rather than hardcoding static role definitions.
+* **Securing State Transitions**: State checks are isolated and validated in backend handlers. If a request is received for an unauthorized state change (e.g., from `RETURNED` to `APPROVED` without going through `SUBMITTED` and `UNDER_REVIEW`), the backend returns a `400 Bad Request`.
+* **Audit Trail Collection**: Status transitions automatically generate a detailed audit log entry. The detail view fetches this history chronologically, ensuring users can review transitions and read feedback comments explaining any rejections or returns.
+
+---
+
+## Trade-offs & Future Extensions
+
+* **Monolithic Frontend Files**: The React client is structured primarily inside a single [App.jsx](file:///d:/approval-workflow/frontend/src/App.jsx) file. While this expedited delivery for this prototype, a production-level React application would break this down into separate components (e.g. `LoginForm`, `Dashboard`, `AuditTrailPanel`, `NotificationCenter`) and use a routing library like React Router.
+* **Base64 Attachment Storage in DB**: File attachments are saved directly into the database as base64 text columns. This is convenient for testing and local environments, but does not scale. In production, files would be uploaded to an object store (e.g., Amazon S3 or Google Cloud Storage) and only the resulting secure URLs would be stored in PostgreSQL.
+* **Polling for Notifications**: In-app notifications are updated using standard REST API polling every 10 seconds. In production, WebSockets or Server-Sent Events (SSE) would replace polling to reduce database load and provide instant updates.
+
+---
+
+## AI Tools Disclosure
+
+* **AI Tools Used**: Antigravity, Gemini.
+* **Usage**:
+  * **Scaffolding**: Used to generate standard structures, initial SQL schema setup, and standard backend routing configurations.
+  * **Code Refactoring & Bug Fixing**:
+    * Assisted in refactoring the login form to add Quick Fill credentials buttons, ensuring ease of validation.
+    * Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
+  * **Testing**: Generated boilerplate integration tests and validated authorization checks.
+* **Manual Verification**:
+  * Ran the database schema migrations locally against a PostgreSQL instance.
+  * Executed the automated test suite locally to verify 100% test coverage for state machine rules and role enforcement.
+  * Conducted end-to-end flow checks by logging in as both roles (Applicant and Reviewer) to confirm comments display in the audit trail and unauthorized API calls return `403 Forbidden` statuses.
+
