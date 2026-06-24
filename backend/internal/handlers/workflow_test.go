@@ -636,3 +636,75 @@ func TestConcurrentLoginInvalidation(t *testing.T) {
 		t.Errorf("Expected status 200 OK for valid token, got %d", rr4.Code)
 	}
 }
+
+func TestAnalyticsEndpoint(t *testing.T) {
+	if !dbEnabled {
+		t.Skip("Database not available, skipping test")
+	}
+	clearDB(t)
+
+	// Applicant shouldn't be able to access
+	req, _ := http.NewRequest("GET", "/api/analytics", nil)
+	req.Header.Set("Authorization", "Bearer "+appToken)
+	rr := executeRequest(req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status 403 Forbidden for applicant accessing analytics, got %d", rr.Code)
+	}
+
+	// Reviewer should be able to access
+	req, _ = http.NewRequest("GET", "/api/analytics", nil)
+	req.Header.Set("Authorization", "Bearer "+revToken)
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for reviewer accessing analytics, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp models.AnalyticsResponse
+	err := json.NewDecoder(rr.Body).Decode(&resp)
+	if err != nil {
+		t.Errorf("Failed to decode analytics response: %v", err)
+	}
+}
+
+func TestReviewerQueuePagination(t *testing.T) {
+	if !dbEnabled {
+		t.Skip("Database not available, skipping test")
+	}
+	clearDB(t)
+
+	// Create an app
+	createPayload := []byte(`{"title":"Queue Test App","category":"Software","description":"Desc","amount":100.0}`)
+	req, _ := http.NewRequest("POST", "/api/applications", bytes.NewBuffer(createPayload))
+	req.Header.Set("Authorization", "Bearer "+appToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr := executeRequest(req)
+	var app models.Application
+	json.NewDecoder(rr.Body).Decode(&app)
+	
+	// Submit it
+	req, _ = http.NewRequest("POST", "/api/applications/"+strconv.Itoa(app.ID)+"/submit", nil)
+	req.Header.Set("Authorization", "Bearer "+appToken)
+	executeRequest(req)
+
+	// Test queue with pagination
+	req, _ = http.NewRequest("GET", "/api/reviewer/applications?page=1&limit=10&search=Queue", nil)
+	req.Header.Set("Authorization", "Bearer "+revToken)
+	rr = executeRequest(req)
+	
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for reviewer queue, got %d", rr.Code)
+	}
+	
+	var resp map[string]interface{}
+	err := json.NewDecoder(rr.Body).Decode(&resp)
+	if err != nil {
+		t.Errorf("Failed to decode queue response: %v", err)
+	}
+	
+	if _, ok := resp["data"]; !ok {
+		t.Error("Expected 'data' key in paginated response")
+	}
+	if _, ok := resp["total"]; !ok {
+		t.Error("Expected 'total' key in paginated response")
+	}
+}

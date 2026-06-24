@@ -153,7 +153,7 @@ export default function App() {
   const appFetch = async (url, options = {}) => {
     const isLogin = url.endsWith('/login');
     const headers = {
-      ...options.headers,
+      ...(options as any).headers,
     };
     if (!isLogin && token) {
       headers['Authorization'] = `Bearer ${token}`;
@@ -235,6 +235,8 @@ export default function App() {
   // Pagination states
   const [appsPage, setAppsPage] = useState(1);
   const [queuePage, setQueuePage] = useState(1);
+  const [queueSearch, setQueueSearch] = useState('');
+  const [totalReviewerApps, setTotalReviewerApps] = useState(0);
   const [auditPage, setAuditPage] = useState(1);
   const [usersPage, setUsersPage] = useState(1);
   const [loginAuditPage, setLoginAuditPage] = useState(1);
@@ -979,8 +981,8 @@ export default function App() {
   const paginatedApps = processedApps.slice((appsPage - 1) * ITEMS_PER_PAGE, appsPage * ITEMS_PER_PAGE);
   const totalAppsPages = Math.ceil(processedApps.length / ITEMS_PER_PAGE);
 
-  const paginatedQueue = processedApps.slice((queuePage - 1) * ITEMS_PER_PAGE, queuePage * ITEMS_PER_PAGE);
-  const totalQueuePages = Math.ceil(processedApps.length / ITEMS_PER_PAGE);
+  const paginatedQueue = hasPermission('applications:review') ? processedApps : processedApps.slice((queuePage - 1) * ITEMS_PER_PAGE, queuePage * ITEMS_PER_PAGE);
+  const totalQueuePages = hasPermission('applications:review') ? Math.ceil(totalReviewerApps / ITEMS_PER_PAGE) : Math.ceil(processedApps.length / ITEMS_PER_PAGE);
 
   const paginatedAuditLogs = filteredAuditLogs.slice((auditPage - 1) * ITEMS_PER_PAGE, auditPage * ITEMS_PER_PAGE);
   const totalAuditPages = Math.ceil(filteredAuditLogs.length / ITEMS_PER_PAGE);
@@ -1068,7 +1070,7 @@ export default function App() {
     try {
       let url = `${API_BASE}/applications`;
       if (hasPermission('applications:review')) {
-        url = `${API_BASE}/reviewer/applications?status=${reviewerFilter}`;
+        url = `${API_BASE}/reviewer/applications?status=${reviewerFilter}&page=${queuePage}&limit=${ITEMS_PER_PAGE}&search=${encodeURIComponent(queueSearch)}`;
       }
 
       const res = await appFetch(url);
@@ -1077,13 +1079,36 @@ export default function App() {
         throw new Error('Failed to fetch applications');
       }
 
-      const data = await res.json();
-      setApplications(data);
+      const resData = await res.json();
+      
+      if (hasPermission('applications:review')) {
+        setApplications(resData.data || []);
+        setTotalReviewerApps(resData.total || 0);
+      } else {
+        setApplications(resData || []);
+      }
+      
       if (token && user) {
         fetchAuditLogsList();
       }
     } catch (err) {
       setErrorMsg(err.message);
+    }
+  };
+
+  const [analyticsData, setAnalyticsData] = useState(null);
+
+  const fetchAnalytics = async () => {
+    if (!token || !user) return;
+    if (user.role !== 'reviewer' && user.role !== 'superuser') return;
+    try {
+      const res = await appFetch(`${API_BASE}/analytics`);
+      if (res.ok) {
+        const data = await res.json();
+        setAnalyticsData(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
     }
   };
 
@@ -1106,10 +1131,13 @@ export default function App() {
   // Initial routing / load data when logged in
   useEffect(() => {
     if (token && user) {
-      Promise.resolve().then(() => fetchApplications());
+      Promise.resolve().then(() => {
+        fetchApplications();
+        fetchAnalytics();
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, user]);
 
   // Re-fetch when filter changes for reviewer
   useEffect(() => {
@@ -1117,7 +1145,7 @@ export default function App() {
       Promise.resolve().then(() => fetchApplications());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewerFilter]);
+  }, [reviewerFilter, queuePage, queueSearch]);
 
   // Auth operations
   const handleLogin = async (email, password) => {
@@ -1490,9 +1518,9 @@ export default function App() {
 
   // Format currency
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-ZM', {
       style: 'currency',
-      currency: 'USD'
+      currency: 'ZMW'
     }).format(val);
   };
 
@@ -1546,6 +1574,9 @@ export default function App() {
 
   // Data helpers for building CSS-based charts
   const getStatusCount = (status, list = applications) => {
+    if (list === applications && hasPermission('applications:review') && analyticsData) {
+      return analyticsData.status_counts?.find(c => c.status === status)?.count || 0;
+    }
     return list.filter(a => a.status === status).length;
   };
 
@@ -1564,6 +1595,12 @@ export default function App() {
   );
 
   const getBudgetByCategoryData = (list) => {
+    if (list === applications && hasPermission('applications:review') && analyticsData) {
+      return analyticsData.category_counts?.map(c => ({
+        name: c.category || 'Uncategorized',
+        value: c.total_amount || 0
+      })) || [];
+    }
     const categoriesMap = {};
     list.forEach(app => {
       const cat = app.category ? app.category.trim() : 'Uncategorized';
@@ -1601,6 +1638,16 @@ export default function App() {
   };
 
   const calculateBottleneckMetrics = () => {
+    if (hasPermission('applications:review') && analyticsData) {
+      return { 
+        avgQueueTime: 0, 
+        avgDecisionTime: 0, 
+        avgTotalTime: (analyticsData.average_review_time_hours || 0) * 3600 * 1000, 
+        queueCount: analyticsData.total_applications || 0, 
+        decisionCount: analyticsData.total_applications || 0
+      };
+    }
+
     if (!auditLogsList || auditLogsList.length === 0) {
       return { avgQueueTime: 0, avgDecisionTime: 0, avgTotalTime: 0, queueCount: 0, decisionCount: 0 };
     }
@@ -1619,7 +1666,7 @@ export default function App() {
     let decisionCount = 0;
 
     Object.keys(appLogs).forEach(appId => {
-      const logs = appLogs[appId].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      const logs = appLogs[appId].sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       
       let tSubmitted = null;
       let tUnderReview = null;
@@ -2070,7 +2117,7 @@ export default function App() {
                     <input
                       id="login-mfa-code"
                       type="text"
-                      maxLength="6"
+                      maxLength={6}
                       pattern="\d{6}"
                       placeholder="e.g. 123456"
                       value={mfaCode}
@@ -2230,44 +2277,44 @@ export default function App() {
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Queue Total</div>
-                      <div className="text-2xl font-black text-white mt-1">{applications.length}</div>
+                      <div className="text-2xl font-black text-white mt-1">{hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length}</div>
                     </div>
-                    {renderProgressCircle(applications.length, applications.length, 'stroke-indigo-500')}
+                    {renderProgressCircle(hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-indigo-500')}
                   </div>
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">SUBMITTED</div>
                       <div className="text-2xl font-black text-blue-400 mt-1">{getStatusCount('SUBMITTED')}</div>
                     </div>
-                    {renderProgressCircle(getStatusCount('SUBMITTED'), applications.length, 'stroke-blue-400')}
+                    {renderProgressCircle(getStatusCount('SUBMITTED'), hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-blue-400')}
                   </div>
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">UNDER REVIEW</div>
                       <div className="text-2xl font-black text-orange-400 mt-1">{getStatusCount('UNDER_REVIEW')}</div>
                     </div>
-                    {renderProgressCircle(getStatusCount('UNDER_REVIEW'), applications.length, 'stroke-orange-400')}
+                    {renderProgressCircle(getStatusCount('UNDER_REVIEW'), hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-orange-400')}
                   </div>
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">APPROVED</div>
                       <div className="text-2xl font-black text-emerald-400 mt-1">{getStatusCount('APPROVED')}</div>
                     </div>
-                    {renderProgressCircle(getStatusCount('APPROVED'), applications.length, 'stroke-emerald-400')}
+                    {renderProgressCircle(getStatusCount('APPROVED'), hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-emerald-400')}
                   </div>
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">REJECTED</div>
                       <div className="text-2xl font-black text-rose-400 mt-1">{getStatusCount('REJECTED')}</div>
                     </div>
-                    {renderProgressCircle(getStatusCount('REJECTED'), applications.length, 'stroke-rose-400')}
+                    {renderProgressCircle(getStatusCount('REJECTED'), hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-rose-400')}
                   </div>
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">RETURNED</div>
                       <div className="text-2xl font-black text-purple-400 mt-1">{getStatusCount('RETURNED')}</div>
                     </div>
-                    {renderProgressCircle(getStatusCount('RETURNED'), applications.length, 'stroke-purple-400')}
+                    {renderProgressCircle(getStatusCount('RETURNED'), hasPermission('applications:review') && analyticsData ? analyticsData.total_applications : applications.length, 'stroke-purple-400')}
                   </div>
                 </div>
 
@@ -2466,9 +2513,9 @@ export default function App() {
                         >
                           <td className="px-4 py-3.5 font-semibold text-slate-200">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate max-w-[200px]" title={app.title}>{app.title}</span>
+                              <span className="truncate max-w-[200px]" >{app.title}</span>
                               {app.attachment_name && (
-                                <svg className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" title={app.attachment_name}>
+                                <svg className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" >
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.414a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                 </svg>
                               )}
@@ -2593,18 +2640,26 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label htmlFor="modal-category" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Category</label>
-                        <input
+                        <select
                           id="modal-category"
-                          type="text"
-                          className="w-full px-4 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all"
-                          placeholder="e.g. Education, Finance, Operations"
+                          className="w-full px-4 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all"
                           value={category}
                           onChange={(e) => setCategory(e.target.value)}
                           required
-                        />
+                        >
+                          <option value="" disabled>Select a category</option>
+                          <option value="Software">Software</option>
+                          <option value="Hardware">Hardware</option>
+                          <option value="Marketing">Marketing</option>
+                          <option value="IT">IT</option>
+                          <option value="Education">Education</option>
+                          <option value="Finance">Finance</option>
+                          <option value="Operations">Operations</option>
+                          <option value="Other">Other</option>
+                        </select>
                       </div>
                       <div className="space-y-1.5">
-                        <label htmlFor="modal-amount" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount ($)</label>
+                        <label htmlFor="modal-amount" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Amount (ZMW)</label>
                         <input
                           id="modal-amount"
                           type="number"
@@ -2623,7 +2678,7 @@ export default function App() {
                       <label htmlFor="modal-desc" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Description</label>
                       <textarea
                         id="modal-desc"
-                        rows="4"
+                        rows={4}
                         className="w-full px-4 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all resize-none"
                         placeholder="Provide a detailed description of this request..."
                         value={description}
@@ -2655,7 +2710,7 @@ export default function App() {
                               const reader = new FileReader();
                               reader.onload = () => {
                                 setAttachmentName(file.name);
-                                setAttachmentData(reader.result);
+                                setAttachmentData(reader.result as string);
                                 setSuccessMsg(`File "${file.name}" ready to upload.`);
                                 setTimeout(() => setSuccessMsg(''), 2000);
                               };
@@ -2785,51 +2840,37 @@ export default function App() {
                       ? 'bg-indigo-600 border-indigo-500 text-white shadow-md'
                       : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10'
                       }`}
-                    onClick={() => { setReviewerFilter(f.id); setSelectedApp(null); }}
+                    onClick={() => { setReviewerFilter(f.id); setSelectedApp(null); setQueuePage(1); }}
                   >
                     {f.label}
                   </button>
                 ))}
-                {categoryFilter && (
-                  <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs px-3 py-1 rounded-full animate-fade-in">
-                    <span>Category: <strong>{categoryFilter}</strong></span>
-                    <button
-                      onClick={() => setCategoryFilter('')}
-                      className="text-indigo-400 hover:text-indigo-200 focus:outline-none cursor-pointer"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </div>
-                )}
               </div>
-
-              <div className="relative w-full md:max-w-sm">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                </span>
+              <div className="relative w-64">
+                <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input
                   type="text"
-                  placeholder="Search by Title, Applicant, Category..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  placeholder="Search queue..."
+                  value={queueSearch}
+                  onChange={(e) => { setQueueSearch(e.target.value); setQueuePage(1); }}
+                  className="w-full bg-slate-900/50 border border-white/10 rounded-lg pl-9 pr-4 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-white placeholder-slate-500"
                 />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                    </svg>
-                  </button>
-                )}
               </div>
             </div>
+
+            {categoryFilter && (
+              <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs px-3 py-1 rounded-full animate-fade-in mt-2">
+                <span>Category: <strong>{categoryFilter}</strong></span>
+                <button
+                  onClick={() => setCategoryFilter('')}
+                  className="text-indigo-400 hover:text-indigo-200 focus:outline-none cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            )}
 
             {/* Main Queue Section */}
             <div className="glass-panel rounded-xl overflow-hidden border border-white/5 shadow-xl">
@@ -2861,9 +2902,9 @@ export default function App() {
                         >
                           <td className="px-4 py-3.5 font-semibold text-slate-200">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate max-w-[200px]" title={app.title}>{app.title}</span>
+                              <span className="truncate max-w-[200px]" >{app.title}</span>
                               {app.attachment_name && (
-                                <svg className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" title={app.attachment_name}>
+                                <svg className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" >
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.414a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                                 </svg>
                               )}
@@ -2892,7 +2933,7 @@ export default function App() {
                   {searchQuery ? "No matching applications found." : "No applications currently in queue for this filter."}
                 </div>
               )}
-              {renderPagination(queuePage, totalQueuePages, processedApps.length, setQueuePage)}
+              {renderPagination(queuePage, totalQueuePages, hasPermission('applications:review') ? totalReviewerApps : processedApps.length, setQueuePage)}
             </div>
           </div>
         )}
@@ -3624,7 +3665,7 @@ export default function App() {
                         </label>
                         <textarea
                           id="review-comment"
-                          rows="3"
+                          rows={3}
                           className="w-full px-4 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all resize-none"
                           placeholder="Provide feedback on your decision..."
                           value={comment}
@@ -4050,7 +4091,7 @@ export default function App() {
                   <input
                     id="setup-mfa-code"
                     type="text"
-                    maxLength="6"
+                    maxLength={6}
                     pattern="\d{6}"
                     placeholder="e.g. 123456"
                     value={tfaVerifyCode}
@@ -4341,9 +4382,9 @@ function InteractiveDonutChart({ data, title, onSelectCategory, selectedCategory
   let accumulatedPercent = 0;
 
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-US', {
+    return new Intl.NumberFormat('en-ZM', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'ZMW',
       maximumFractionDigits: 0
     }).format(val);
   };

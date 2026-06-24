@@ -97,6 +97,9 @@ func (h *Handlers) RegisterRoutes(r chi.Router) {
 		r.Get("/api/notifications", h.GetNotifications)
 		r.Put("/api/notifications/{id}/read", h.ReadNotification)
 		r.Post("/api/notifications/read-all", h.ReadAllNotifications)
+
+		// Analytics
+		r.Get("/api/analytics", h.GetAnalytics)
 	})
 }
 
@@ -602,57 +605,62 @@ func (h *Handlers) GetLoginAuditLogs(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, logs)
 }
 
+func (h *Handlers) GetAnalytics(w http.ResponseWriter, r *http.Request) {
+	// Analytics are only visible to reviewers/superusers
+	claims, _ := middleware.GetUserClaims(r.Context())
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	if user.Role != models.RoleReviewer && user.Role != models.RoleSuperuser {
+		respondError(w, http.StatusForbidden, "Forbidden")
+		return
+	}
+
+	analytics, err := h.repo.GetAnalytics()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to compute analytics")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, analytics)
+}
+
 // Reviewer Handlers
 func (h *Handlers) GetReviewerQueue(w http.ResponseWriter, r *http.Request) {
-	apps, err := h.repo.GetAllApplications()
+	pageStr := r.URL.Query().Get("page")
+	limitStr := r.URL.Query().Get("limit")
+	search := r.URL.Query().Get("search")
+	statusFilter := r.URL.Query().Get("status")
+
+	page := 1
+	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+		page = p
+	}
+
+	limit := 10
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+		limit = l
+	}
+
+	apps, total, err := h.repo.GetReviewerQueuePaginated(page, limit, search, statusFilter)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to retrieve reviewer queue")
 		return
 	}
 
-	filter := r.URL.Query().Get("status")
-	var filteredApps []models.Application
-
-	// Standardise filter string (lowercase check)
-	filter = strings.ToLower(filter)
-
-	for _, app := range apps {
-		switch filter {
-		case "submitted":
-			if app.Status == models.StatusSubmitted {
-				filteredApps = append(filteredApps, app)
-			}
-		case "under_review", "under review":
-			if app.Status == models.StatusUnderReview {
-				filteredApps = append(filteredApps, app)
-			}
-		case "approved":
-			if app.Status == models.StatusApproved {
-				filteredApps = append(filteredApps, app)
-			}
-		case "rejected":
-			if app.Status == models.StatusRejected {
-				filteredApps = append(filteredApps, app)
-			}
-		case "returned":
-			if app.Status == models.StatusReturned {
-				filteredApps = append(filteredApps, app)
-			}
-		case "all":
-			filteredApps = append(filteredApps, app)
-		default:
-			// Default queue returns only SUBMITTED and UNDER_REVIEW
-			if app.Status == models.StatusSubmitted || app.Status == models.StatusUnderReview {
-				filteredApps = append(filteredApps, app)
-			}
-		}
+	if apps == nil {
+		apps = []models.Application{}
 	}
 
-	if filteredApps == nil {
-		filteredApps = []models.Application{}
-	}
-
-	respondJSON(w, http.StatusOK, filteredApps)
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"data":  apps,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
 }
 
 func (h *Handlers) StartReview(w http.ResponseWriter, r *http.Request) {

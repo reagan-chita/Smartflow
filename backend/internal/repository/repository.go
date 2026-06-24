@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"strconv"
 	"time"
 
 	"github.com/reaganchita/approval-workflow/backend/internal/models"
@@ -73,7 +74,7 @@ func (r *Repository) GetApplicationByID(id int) (*models.Application, error) {
 		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
-		WHERE a.id = $1`
+		WHERE a.id = $1 AND a.is_deleted = false`
 	var app models.Application
 	err := r.db.QueryRow(query, id).Scan(
 		&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
@@ -89,7 +90,7 @@ func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application
 		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
-		WHERE a.owner_id = $1
+		WHERE a.owner_id = $1 AND a.is_deleted = false
 		ORDER BY a.created_at DESC`
 	rows, err := r.db.Query(query, ownerID)
 	if err != nil {
@@ -116,6 +117,7 @@ func (r *Repository) GetAllApplications() ([]models.Application, error) {
 		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
+		WHERE a.is_deleted = false
 		ORDER BY a.created_at DESC`
 	rows, err := r.db.Query(query)
 	if err != nil {
@@ -135,6 +137,68 @@ func (r *Repository) GetAllApplications() ([]models.Application, error) {
 		apps = append(apps, app)
 	}
 	return apps, nil
+}
+
+func (r *Repository) GetReviewerQueuePaginated(page, limit int, search, statusFilter string) ([]models.Application, int, error) {
+	offset := (page - 1) * limit
+	
+	baseQuery := `
+		FROM applications a
+		JOIN users u ON a.owner_id = u.id
+		WHERE a.is_deleted = false `
+	
+	args := []interface{}{}
+	argCounter := 1
+
+	if statusFilter != "" && statusFilter != "ALL" {
+		if statusFilter == "UNDER REVIEW" {
+			statusFilter = models.StatusUnderReview
+		}
+		baseQuery += ` AND a.status = $` + strconv.Itoa(argCounter)
+		args = append(args, statusFilter)
+		argCounter++
+	}
+
+	if search != "" {
+		baseQuery += ` AND (a.title ILIKE $` + strconv.Itoa(argCounter) + ` OR u.name ILIKE $` + strconv.Itoa(argCounter) + `)`
+		args = append(args, "%"+search+"%")
+		argCounter++
+	}
+
+	// Count query
+	var total int
+	countQuery := `SELECT COUNT(a.id) ` + baseQuery
+	err := r.db.QueryRow(countQuery, args...).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Data query
+	dataQuery := `
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at ` + baseQuery + `
+		ORDER BY a.created_at DESC
+		LIMIT $` + strconv.Itoa(argCounter) + ` OFFSET $` + strconv.Itoa(argCounter+1)
+	
+	args = append(args, limit, offset)
+
+	rows, err := r.db.Query(dataQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var apps []models.Application
+	for rows.Next() {
+		var app models.Application
+		err := rows.Scan(
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		apps = append(apps, app)
+	}
+	return apps, total, nil
 }
 
 func (r *Repository) UpdateApplication(app *models.Application) error {
@@ -157,7 +221,7 @@ func (r *Repository) UpdateApplicationStatus(appID int, status string) error {
 }
 
 func (r *Repository) DeleteApplication(appID int) error {
-	_, err := r.db.Exec("DELETE FROM applications WHERE id = $1", appID)
+	_, err := r.db.Exec("UPDATE applications SET is_deleted = true, updated_at = NOW() WHERE id = $1", appID)
 	return err
 }
 
@@ -258,6 +322,63 @@ func (r *Repository) GetAuditLogsByOwnerID(ownerID int) ([]models.AuditLog, erro
 // GetDB returns the underlying sql.DB connection for direct operations (e.g. testing)
 func (r *Repository) GetDB() *sql.DB {
 	return r.db
+}
+
+func (r *Repository) GetAnalytics() (*models.AnalyticsResponse, error) {
+	var analytics models.AnalyticsResponse
+
+	// Total applications (excluding deleted)
+	err := r.db.QueryRow("SELECT COUNT(*) FROM applications WHERE is_deleted = false").Scan(&analytics.TotalApplications)
+	if err != nil {
+		return nil, err
+	}
+
+	// Total approved amount
+	err = r.db.QueryRow("SELECT COALESCE(SUM(amount), 0) FROM applications WHERE status = 'APPROVED' AND is_deleted = false").Scan(&analytics.TotalApprovedAmount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Average review cycle time in hours
+	// Time difference between creation and update for APPROVED or REJECTED apps
+	err = r.db.QueryRow(`
+		SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (updated_at - created_at))/3600), 0) 
+		FROM applications 
+		WHERE status IN ('APPROVED', 'REJECTED') AND is_deleted = false
+	`).Scan(&analytics.AverageReviewTimeHours)
+	if err != nil {
+		return nil, err
+	}
+
+	// Category counts
+	catRows, err := r.db.Query("SELECT category, COUNT(*), COALESCE(SUM(amount), 0) FROM applications WHERE is_deleted = false GROUP BY category")
+	if err != nil {
+		return nil, err
+	}
+	defer catRows.Close()
+	for catRows.Next() {
+		var catCount models.CategoryCount
+		if err := catRows.Scan(&catCount.Category, &catCount.Count, &catCount.TotalAmount); err != nil {
+			return nil, err
+		}
+		analytics.CategoryCounts = append(analytics.CategoryCounts, catCount)
+	}
+
+	// Status counts
+	statusRows, err := r.db.Query("SELECT status, COUNT(*) FROM applications WHERE is_deleted = false GROUP BY status")
+	if err != nil {
+		return nil, err
+	}
+	defer statusRows.Close()
+	for statusRows.Next() {
+		var statCount models.StatusCount
+		if err := statusRows.Scan(&statCount.Status, &statCount.Count); err != nil {
+			return nil, err
+		}
+		analytics.StatusCounts = append(analytics.StatusCounts, statCount)
+	}
+
+	return &analytics, nil
 }
 
 // CleanDatabase deletes all non-user data (useful for test isolation)

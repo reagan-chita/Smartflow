@@ -140,3 +140,23 @@ type LoginAuditLog struct {
 type LogoutRequest struct {
 	UserAgent string `json:"user_agent"`
 }
+
+// Analytics models
+type CategoryCount struct {
+	Category    string  `json:"category"`
+	Count       int     `json:"count"`
+	TotalAmount float64 `json:"total_amount"`
+}
+
+type StatusCount struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
+type AnalyticsResponse struct {
+	TotalApplications      int             `json:"total_applications"`
+	TotalApprovedAmount    float64         `json:"total_approved_amount"`
+	AverageReviewTimeHours float64         `json:"average_review_time_hours"`
+	CategoryCounts         []CategoryCount `json:"category_counts"`
+	StatusCounts           []StatusCount   `json:"status_counts"`
+}

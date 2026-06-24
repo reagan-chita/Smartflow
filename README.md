@@ -46,12 +46,16 @@ The project is deployed and live at:
      * **Approve** (UNDER_REVIEW → APPROVED, optional comment)
      * **Reject** (UNDER_REVIEW → REJECTED, required comment)
      * **Return for Changes** (UNDER_REVIEW → RETURNED, required comment)
-7. **State Machine (Strict Guardrails)**:
+7. **Enterprise Scale & Performance**:
+   * **Server-Side Pagination & Search**: The reviewer queue leverages efficient PostgreSQL `LIMIT`/`OFFSET` queries alongside `ILIKE` searching to ensure the frontend never loads thousands of records at once.
+   * **Server-Side Analytics Engine**: Dashboard metrics (Category Distribution, Status Breakdown, Bottleneck Cycle Times) are aggregated via native PostgreSQL functions (`COUNT`, `COALESCE(SUM)`, `AVG(EXTRACT(EPOCH...))`) instantly at the database layer rather than relying on heavy in-memory JavaScript calculations.
+   * **Enterprise "Soft Deletes"**: Data is preserved for compliance. Deleted applications are flagged (`is_deleted = true`) rather than permanently wiped, maintaining audit trail integrity.
+8. **State Machine (Strict Guardrails)**:
    * Enforces transition path: DRAFT → SUBMITTED → UNDER_REVIEW → (APPROVED / REJECTED / RETURNED).
    * Any invalid transition (e.g. APPROVED → DRAFT) returns a `400 Bad Request` with `{"error": "Illegal status transition"}`.
-8. **Authorization Rules**:
+9. **Authorization Rules**:
    * Enforced at backend middleware level. Applicants cannot approve, reject, or start reviews (403 Forbidden). Reviewers cannot create or edit applications (403 Forbidden).
-9. **Audit Trail**:
+10. **Audit Trail**:
    * Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
    * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
@@ -95,7 +99,7 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 ## Technical Stack
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
-* **Frontend**: Vite + React, Tailwind CSS v4, Web Crypto API.
+* **Frontend**: Vite + React (TypeScript), Tailwind CSS v4, Web Crypto API.
 * **Database**: PostgreSQL 15.
 * **Orchestration**: Docker & Docker Compose.
 
@@ -116,9 +120,9 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 │   └── Dockerfile                   # Multi-stage Go build
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                  # Dashboard, SPA logic, dynamic charts, dev-helpers
+│   │   ├── App.tsx                  # Dashboard, SPA logic, dynamic charts, dev-helpers
 │   │   ├── index.css                # Tailwind imports and Open Ownership color variables
-│   │   └── main.jsx                 # Vite mounting file
+│   │   └── main.tsx                 # Vite mounting file
 │   ├── Dockerfile                   # Multi-stage Node build & production Nginx hosting
 │   └── package.json
 ├── migrations/
@@ -261,11 +265,16 @@ erDiagram
 
 ---
 
-## Trade-offs & Future Extensions
+## Trade-offs & Future Enhancements (What I'd add with more time)
 
-* **Monolithic Frontend Files**: The React client is structured primarily inside a single [App.jsx](file:///d:/approval-workflow/frontend/src/App.jsx) file. While this expedited delivery for this prototype, a production-level React application would break this down into separate components (e.g. `LoginForm`, `Dashboard`, `AuditTrailPanel`, `NotificationCenter`) and use a routing library like React Router.
-* **Base64 Attachment Storage in DB**: File attachments are saved directly into the database as base64 text columns. This is convenient for testing and local environments, but does not scale. In production, files would be uploaded to an object store (e.g., Amazon S3 or Google Cloud Storage) and only the resulting secure URLs would be stored in PostgreSQL.
-* **Polling for Notifications**: In-app notifications are updated using standard REST API polling every 10 seconds. In production, WebSockets or Server-Sent Events (SSE) would replace polling to reduce database load and provide instant updates.
+While the core assessment requirements and stretch goals are fully met, scaling this application to an enterprise-grade production environment would involve the following architectural enhancements:
+
+* **Event-Driven Architecture**: Currently, status updates synchronously create audit logs and notifications in the database. With more time, I would decouple these using an event bus (e.g., RabbitMQ or Kafka) or Go channels. Transition handlers would simply publish a `StatusChangedEvent`, allowing dedicated async workers to handle logging, email dispatch, and metrics updates without blocking the HTTP request.
+* **Email & External Notifications**: The project implements in-app notifications successfully, but an obvious next step is integrating an external provider (e.g., AWS SES or SendGrid) to send actual emails to applicants when their proposals are approved, rejected, or returned.
+* **S3 Object Storage for Attachments**: File attachments are currently saved directly into PostgreSQL as base64 text columns. This was a trade-off made for portability and easy local testing without external dependencies. In production, files should be streamed directly to an object store (Amazon S3 / GCP Cloud Storage), and only the resulting secure URLs would be stored in the database.
+* **WebSockets / Server-Sent Events (SSE)**: In-app notifications currently rely on standard REST API polling (every 10 seconds). Upgrading this to WebSockets or SSE would drastically reduce database load and provide instant, real-time feedback to the user.
+* **Frontend Componentization & E2E Testing**: The React client is structured primarily inside a single `App.tsx` file for velocity during this prototyping phase. A production system would break this down into atomic components and utilize a routing library (like React Router), alongside End-to-End testing suites utilizing Playwright or Cypress.
+* **Caching Layer**: Integrating Redis to cache frequent but rarely changing payloads (such as user roles, permissions, and top-level analytics) would significantly reduce the strain on PostgreSQL during high-traffic queue reviews.
 
 ---
 
@@ -287,7 +296,8 @@ erDiagram
 The system architecture, business requirements analysis, feature implementation, database design decisions, testing, integration, customization, and final code review were performed by the developer. AI tools were used as development aids to improve productivity and accelerate problem-solving. The developer remained responsible for all technical decisions, code validation, and the quality of the final solution.
 
 * **Code Refactoring & Bug Fixing**:
-* Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
+  * Assisted with migrating the monolithic React frontend from JavaScript (.jsx) to TypeScript (.tsx) to satisfy strict technical stack constraints, including generating tsconfig files and resolving type compilation errors.
+  * Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
 * **Testing**: Generated boilerplate integration tests and validated authorization checks.
 * **Manual Verification**:
   * Ran the database schema migrations locally against a PostgreSQL instance.
