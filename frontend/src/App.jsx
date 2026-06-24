@@ -24,6 +24,67 @@ const dataURLtoBlob = (dataurl) => {
   }
 };
 
+// Pure JS Base32 Decoder and TOTP Generator (Web Crypto API)
+const base32Decode = (str) => {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  str = str.replace(/=+$/, '').toUpperCase();
+  let val = 0;
+  let count = 0;
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    const idx = alphabet.indexOf(str[i]);
+    if (idx === -1) continue;
+    val = (val << 5) | idx;
+    count += 5;
+    if (count >= 8) {
+      bytes.push((val >>> (count - 8)) & 0xff);
+      count -= 8;
+    }
+  }
+  return new Uint8Array(bytes);
+};
+
+const generateTOTP = async (secret, timeStep = 30) => {
+  try {
+    const keyBytes = base32Decode(secret);
+    const epoch = Math.round(new Date().getTime() / 1000);
+    const counter = Math.floor(epoch / timeStep);
+    
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    view.setUint32(0, 0);
+    view.setUint32(4, counter);
+    
+    const cryptoKey = await window.crypto.subtle.importKey(
+      "raw",
+      keyBytes,
+      { name: "HMAC", hash: { name: "SHA-1" } },
+      false,
+      ["sign"]
+    );
+    
+    const signature = await window.crypto.subtle.sign(
+      "HMAC",
+      cryptoKey,
+      buffer
+    );
+    
+    const sigBytes = new Uint8Array(signature);
+    const offset = sigBytes[sigBytes.length - 1] & 0x0f;
+    const binary = ((sigBytes[offset] & 0x7f) << 24) |
+                   ((sigBytes[offset + 1] & 0xff) << 16) |
+                   ((sigBytes[offset + 2] & 0xff) << 8) |
+                   (sigBytes[offset + 3] & 0xff);
+    
+    const otp = binary % 1000000;
+    return String(otp).padStart(6, '0');
+  } catch (e) {
+    console.error('Failed to generate TOTP client-side:', e);
+    return '';
+  }
+};
+
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')) || null);
@@ -53,6 +114,9 @@ export default function App() {
 
     return res;
   };
+
+  // Global action loading state — tracks which action is pending
+  const [actionLoading, setActionLoading] = useState(''); // e.g. 'login', 'save', 'submit-123', 'approve', etc.
 
   // App state
   const [applications, setApplications] = useState([]);
@@ -107,6 +171,7 @@ export default function App() {
   const [queuePage, setQueuePage] = useState(1);
   const [auditPage, setAuditPage] = useState(1);
   const [usersPage, setUsersPage] = useState(1);
+  const [loginAuditPage, setLoginAuditPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
 
   // Profile Dropdown state
@@ -122,6 +187,73 @@ export default function App() {
   const [auditSearchQuery, setAuditSearchQuery] = useState('');
   const [auditStartDate, setAuditStartDate] = useState('');
   const [auditEndDate, setAuditEndDate] = useState('');
+
+  // Login Audit Logs state
+  const [loginAuditLogs, setLoginAuditLogs] = useState([]);
+  const [loadingLoginAudit, setLoadingLoginAudit] = useState(false);
+  const [loginAuditSearch, setLoginAuditSearch] = useState('');
+  const [isAuditDropdownOpen, setIsAuditDropdownOpen] = useState(false);
+
+  // 2FA Setup & Login states
+  const [tfaSecret, setTfaSecret] = useState('');
+  const [tfaQRCodeURL, setTfaQRCodeURL] = useState('');
+  const [tfaVerifyCode, setTfaVerifyCode] = useState('');
+  const [isTfaModalOpen, setIsTfaModalOpen] = useState(false);
+  const [loading2FA, setLoading2FA] = useState(false);
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaTicket, setMfaTicket] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
+
+  const [modalTotpCode, setModalTotpCode] = useState('');
+  const [modalSecondsLeft, setModalSecondsLeft] = useState(null);
+  const [loginTotpCode, setLoginTotpCode] = useState('');
+  const [loginSecondsLeft, setLoginSecondsLeft] = useState(null);
+
+  // Effect for 2FA Setup Modal OTP display
+  useEffect(() => {
+    if (!isTfaModalOpen || !tfaSecret) {
+      setModalTotpCode('');
+      setModalSecondsLeft(null);
+      return;
+    }
+
+    const updateModalOTP = async () => {
+      const otp = await generateTOTP(tfaSecret);
+      setModalTotpCode(otp);
+      setModalSecondsLeft(30 - (Math.round(new Date().getTime() / 1000) % 30));
+    };
+
+    updateModalOTP();
+    const interval = setInterval(updateModalOTP, 1000);
+    return () => clearInterval(interval);
+  }, [isTfaModalOpen, tfaSecret]);
+
+  // Effect for Dev-Helper login code display
+  useEffect(() => {
+    if (!mfaRequired || !mfaTicket) {
+      setLoginTotpCode('');
+      setLoginSecondsLeft(null);
+      return;
+    }
+
+    const fetchDevCode = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/2fa/dev-code?ticket=${mfaTicket}`);
+        if (res.ok) {
+          const data = await res.json();
+          setLoginTotpCode(data.code);
+          setLoginSecondsLeft(data.seconds_remaining);
+        }
+      } catch (e) {
+        console.error('Failed to fetch dev 2FA code:', e);
+      }
+    };
+
+    fetchDevCode();
+    // Poll the dev code endpoint every 5 seconds to keep it fresh
+    const interval = setInterval(fetchDevCode, 5000);
+    return () => clearInterval(interval);
+  }, [mfaRequired, mfaTicket]);
 
   const filteredAuditLogs = auditLogsList.filter(log => {
     const query = auditSearchQuery.toLowerCase();
@@ -382,7 +514,7 @@ export default function App() {
 
   // Fetch audit logs when view changes
   useEffect(() => {
-    if (currentView === 'audit-logs') {
+    if (currentView === 'audit-logs' || (currentView === 'dashboard' && hasPermission('applications:review'))) {
       Promise.resolve().then(() => fetchAuditLogsList());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,10 +552,15 @@ export default function App() {
   }, [auditSearchQuery, auditStartDate, auditEndDate]);
 
   useEffect(() => {
+    setLoginAuditPage(1);
+  }, [loginAuditSearch]);
+
+  useEffect(() => {
     setAppsPage(1);
     setQueuePage(1);
     setAuditPage(1);
     setUsersPage(1);
+    setLoginAuditPage(1);
     setAuditStartDate('');
     setAuditEndDate('');
   }, [currentView]);
@@ -864,6 +1001,7 @@ export default function App() {
   // Auth operations
   const handleLogin = async (email, password) => {
     setErrorMsg('');
+    setActionLoading('login');
     try {
       const res = await appFetch(`${API_BASE}/login`, {
         method: 'POST',
@@ -878,6 +1016,13 @@ export default function App() {
         throw new Error(data.error || 'Login failed');
       }
 
+      if (data.mfa_required) {
+        setMfaTicket(data.ticket);
+        setMfaRequired(true);
+        setMfaCode('');
+        return;
+      }
+
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setToken(data.token);
@@ -887,10 +1032,135 @@ export default function App() {
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
       setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleMfaSubmit = async (e) => {
+    e.preventDefault();
+    if (mfaCode.length !== 6) {
+      setErrorMsg('Please enter a 6-digit code.');
+      return;
+    }
+
+    setErrorMsg('');
+    setActionLoading('login-mfa');
+    try {
+      const res = await appFetch(`${API_BASE}/login/mfa`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ ticket: mfaTicket, code: mfaCode })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'MFA validation failed');
+      }
+
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      setToken(data.token);
+      setUser(data.user);
+      setMfaRequired(false);
+      setMfaTicket('');
+      setMfaCode('');
+      setCurrentView('dashboard');
+      setSuccessMsg('Logged in successfully with 2FA!');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleOpen2FASetup = async () => {
+    if (user.tfa_enabled) {
+      // Disable 2FA
+      if (confirm('Are you sure you want to disable Two-Factor Authentication? This will make your account less secure.')) {
+        try {
+          setActionLoading('2fa-disable');
+          const res = await appFetch(`${API_BASE}/2fa/disable`, { method: 'POST' });
+          const data = await res.json();
+          if (res.ok) {
+            const updatedUser = { ...user, tfa_enabled: false, tfa_secret: null };
+            setUser(updatedUser);
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            setSuccessMsg('Two-Factor Authentication disabled successfully.');
+          } else {
+            setErrorMsg(data.error || 'Failed to disable 2FA');
+          }
+        } catch (e) {
+          setErrorMsg('An error occurred while disabling 2FA.');
+        } finally {
+          setActionLoading('');
+        }
+      }
+    } else {
+      // Setup 2FA (fetch secret and QR code)
+      try {
+        setLoading2FA(true);
+        const res = await appFetch(`${API_BASE}/2fa/setup`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          setTfaSecret(data.secret);
+          setTfaQRCodeURL(data.qr_code_url);
+          setTfaVerifyCode('');
+          setIsTfaModalOpen(true);
+        } else {
+          setErrorMsg(data.error || 'Failed to initialize 2FA setup');
+        }
+      } catch (e) {
+        setErrorMsg('An error occurred during 2FA setup.');
+      } finally {
+        setLoading2FA(false);
+      }
+    }
+  };
+
+  const handleConfirm2FA = async (e) => {
+    e.preventDefault();
+    if (tfaVerifyCode.length !== 6) {
+      setErrorMsg('Please enter a 6-digit verification code.');
+      return;
+    }
+    try {
+      setActionLoading('2fa-enable');
+      const res = await appFetch(`${API_BASE}/2fa/enable`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: tfaVerifyCode })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const updatedUser = { ...user, tfa_enabled: true, tfa_secret: tfaSecret };
+        setUser(updatedUser);
+        localStorage.setItem('user', JSON.stringify(updatedUser));
+        setIsTfaModalOpen(false);
+        setSuccessMsg('Two-Factor Authentication enabled successfully!');
+      } else {
+        setErrorMsg(data.error || 'Invalid verification code');
+      }
+    } catch (e) {
+      setErrorMsg('An error occurred while enabling 2FA.');
+    } finally {
+      setActionLoading('');
     }
   };
 
   const handleLogout = () => {
+    // Fire-and-forget logout audit call before clearing state
+    const tok = localStorage.getItem('token');
+    if (tok) {
+      appFetch(`${API_BASE}/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tok}` },
+        body: JSON.stringify({ user_agent: navigator.userAgent })
+      }).catch(() => {});
+    }
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setToken('');
@@ -898,12 +1168,14 @@ export default function App() {
     setApplications([]);
     setSelectedApp(null);
     setAuditLogs([]);
+    setLoginAuditLogs([]);
     setCurrentView('login');
   };
 
   // Load detail / selection
   const handleSelectApp = async (appId) => {
     setErrorMsg('');
+    setActionLoading(`open-${appId}`);
     try {
       const res = await appFetch(`${API_BASE}/applications/${appId}`);
 
@@ -922,6 +1194,8 @@ export default function App() {
       }
     } catch (err) {
       setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
     }
   };
 
@@ -944,6 +1218,7 @@ export default function App() {
       attachment_data: attachmentData
     };
 
+    setActionLoading('save');
     try {
       let url = `${API_BASE}/applications`;
       let method = 'POST';
@@ -984,6 +1259,8 @@ export default function App() {
       setCurrentView('applications');
     } catch (err) {
       setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
     }
   };
 
@@ -991,6 +1268,7 @@ export default function App() {
   const handleDeleteApplication = async (appId) => {
     if (!window.confirm("Are you sure you want to delete this application?")) return;
     setErrorMsg('');
+    setActionLoading(`delete-${appId}`);
     try {
       const res = await appFetch(`${API_BASE}/applications/${appId}`, {
         method: 'DELETE'
@@ -1011,6 +1289,8 @@ export default function App() {
       await fetchApplications();
     } catch (err) {
       setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
     }
   };
 
@@ -1057,6 +1337,7 @@ export default function App() {
   // Actions transitions
   const handleTransition = async (appId, actionPath, payload = {}) => {
     setErrorMsg('');
+    setActionLoading(actionPath);
     try {
       const res = await appFetch(`${API_BASE}/applications/${appId}/${actionPath}`, {
         method: 'POST',
@@ -1081,6 +1362,8 @@ export default function App() {
       }
     } catch (err) {
       setErrorMsg(err.message);
+    } finally {
+      setActionLoading('');
     }
   };
 
@@ -1159,10 +1442,150 @@ export default function App() {
     1
   );
 
+  const getBudgetByCategoryData = (list) => {
+    const categoriesMap = {};
+    list.forEach(app => {
+      const cat = app.category ? app.category.trim() : 'Uncategorized';
+      categoriesMap[cat] = (categoriesMap[cat] || 0) + Number(app.amount || 0);
+    });
+
+    const colors = ['#6366f1', '#10b981', '#f59e0b', '#ec4899', '#3b82f6', '#8b5cf6', '#ef4444', '#14b8a6'];
+    return Object.keys(categoriesMap).map((cat, idx) => ({
+      label: cat,
+      value: categoriesMap[cat],
+      color: colors[idx % colors.length],
+      formattedValue: formatCurrency(categoriesMap[cat])
+    })).filter(item => item.value > 0);
+  };
+
+  const getStatusDistributionData = (list) => {
+    const statuses = list === ownApps 
+      ? ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'RETURNED']
+      : ['SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'RETURNED'];
+      
+    const colorsMap = {
+      'DRAFT': '#94a3b8',
+      'SUBMITTED': '#3b82f6',
+      'UNDER_REVIEW': '#f97316',
+      'APPROVED': '#10b981',
+      'REJECTED': '#f43f5e',
+      'RETURNED': '#a855f7'
+    };
+
+    return statuses.map(status => ({
+      label: status === 'UNDER_REVIEW' ? 'REVIEW' : status,
+      value: getStatusCount(status, list),
+      color: colorsMap[status] || '#cbd5e1'
+    }));
+  };
+
+  const calculateBottleneckMetrics = () => {
+    if (!auditLogsList || auditLogsList.length === 0) {
+      return { avgQueueTime: 0, avgDecisionTime: 0, avgTotalTime: 0, queueCount: 0, decisionCount: 0 };
+    }
+
+    const appLogs = {};
+    auditLogsList.forEach(log => {
+      if (!appLogs[log.application_id]) {
+        appLogs[log.application_id] = [];
+      }
+      appLogs[log.application_id].push(log);
+    });
+
+    let totalQueueTime = 0;
+    let totalDecisionTime = 0;
+    let queueCount = 0;
+    let decisionCount = 0;
+
+    Object.keys(appLogs).forEach(appId => {
+      const logs = appLogs[appId].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      
+      let tSubmitted = null;
+      let tUnderReview = null;
+      let tDecision = null;
+
+      logs.forEach(log => {
+        const time = new Date(log.created_at).getTime();
+        if (log.new_status === 'SUBMITTED' && !tSubmitted) {
+          tSubmitted = time;
+        }
+        if (log.new_status === 'UNDER_REVIEW' && !tUnderReview) {
+          tUnderReview = time;
+        }
+        if (['APPROVED', 'REJECTED', 'RETURNED'].includes(log.new_status) && !tDecision) {
+          tDecision = time;
+        }
+      });
+
+      if (tSubmitted && tUnderReview) {
+        totalQueueTime += (tUnderReview - tSubmitted);
+        queueCount++;
+      }
+      if (tUnderReview && tDecision) {
+        totalDecisionTime += (tDecision - tUnderReview);
+        decisionCount++;
+      }
+    });
+
+    const avgQueueTime = queueCount > 0 ? totalQueueTime / queueCount : 0;
+    const avgDecisionTime = decisionCount > 0 ? totalDecisionTime / decisionCount : 0;
+    const avgTotalTime = avgQueueTime + avgDecisionTime;
+
+    return {
+      avgQueueTime,
+      avgDecisionTime,
+      avgTotalTime,
+      queueCount,
+      decisionCount
+    };
+  };
+
+  const formatDuration = (ms) => {
+    if (ms <= 0) return '—';
+    const totalSecs = Math.floor(ms / 1000);
+    const totalMins = Math.floor(totalSecs / 60);
+    const totalHours = Math.floor(totalMins / 60);
+    const days = Math.floor(totalHours / 24);
+
+    if (days > 0) {
+      return `${days}d ${totalHours % 24}h`;
+    }
+    if (totalHours > 0) {
+      return `${totalHours}h ${totalMins % 60}m`;
+    }
+    if (totalMins > 0) {
+      return `${totalMins}m ${totalSecs % 60}s`;
+    }
+    return `${totalSecs}s`;
+  };
+
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
     <div className="min-h-screen flex flex-col font-sans">
+      {/* Global Action Loading Overlay */}
+      {actionLoading && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-3 bg-slate-900/90 border border-white/10 rounded-2xl px-8 py-6 shadow-2xl">
+            <svg className="animate-spin w-8 h-8 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-widest">
+              {actionLoading === 'login' ? 'Signing In...' :
+               actionLoading === 'save' ? 'Saving...' :
+               actionLoading === 'submit' ? 'Submitting...' :
+               actionLoading === 'approve' ? 'Approving...' :
+               actionLoading === 'reject' ? 'Rejecting...' :
+               actionLoading === 'return' ? 'Returning...' :
+               actionLoading === 'start-review' ? 'Starting Review...' :
+               actionLoading.startsWith('delete-') ? 'Deleting...' :
+               actionLoading.startsWith('open-') ? 'Loading...' :
+               'Processing...'}
+            </span>
+          </div>
+        </div>
+      )}
       {/* Toast Notification Stack */}
       <div className="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none w-full max-w-sm">
         {toasts.map(t => (
@@ -1216,11 +1639,10 @@ export default function App() {
                   setSelectedApp(null);
                 }}
               >
-                <svg className="w-5 h-5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
-                  <path d="m9 12 2 2 4-4" />
-                </svg>
-                SmartFlow Dashboard
+                <div className="bg-white/5 p-1 rounded-lg border border-white/10 hover:border-indigo-500/30 transition-all flex items-center justify-center">
+                  <OpenOwnershipLogo className="h-6 w-auto text-white" />
+                </div>
+                <span className="text-sm font-bold tracking-tight text-slate-200">Dashboard</span>
               </div>
 
               <div className="flex flex-wrap items-center justify-center gap-2">
@@ -1269,18 +1691,61 @@ export default function App() {
                   </div>
                 )}
                 {user && (
-                  <div
-                    onClick={() => {
-                      setSelectedApp(null);
-                      setCurrentView('audit-logs');
-                    }}
-                    className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-1.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-1.5 cursor-pointer animate-fade-in"
-                  >
-                    <svg className="w-3.5 h-3.5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    Audit Log
+                  <div className="relative">
+                    <div
+                      onClick={() => setIsAuditDropdownOpen(prev => !prev)}
+                      className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-1.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-1.5 cursor-pointer animate-fade-in"
+                    >
+                      <svg className="w-3.5 h-3.5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                      </svg>
+                      Audit Log
+                      <svg className={`w-3 h-3 transition-transform ${isAuditDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </div>
+                    {isAuditDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setIsAuditDropdownOpen(false)} />
+                        <div className="absolute left-0 mt-1 w-52 rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-lg shadow-2xl p-1.5 z-20 animate-fade-in">
+                          <button
+                            onClick={() => {
+                              setIsAuditDropdownOpen(false);
+                              setSelectedApp(null);
+                              setLoginAuditSearch('');
+                              setLoginAuditPage(1);
+                              setLoadingLoginAudit(true);
+                              appFetch(`${API_BASE}/login-audit-logs`)
+                                .then(r => r.json())
+                                .then(d => { setLoginAuditLogs(Array.isArray(d) ? d : []); })
+                                .catch(() => {})
+                                .finally(() => setLoadingLoginAudit(false));
+                              setCurrentView('audit-logs-login');
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                          >
+                            <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                              <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            Login Activity
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsAuditDropdownOpen(false);
+                              setSelectedApp(null);
+                              setCurrentView('audit-logs');
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition-colors cursor-pointer"
+                          >
+                            <svg className="w-4 h-4 text-indigo-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                            </svg>
+                            System Audit
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1382,6 +1847,20 @@ export default function App() {
                           </span>
                         </div>
                       </div>
+                      <div className="py-1 border-b border-white/5 space-y-1">
+                        <button
+                          onClick={() => {
+                            setIsProfileDropdownOpen(false);
+                            handleOpen2FASetup();
+                          }}
+                          className="w-full text-left font-semibold text-slate-300 hover:text-white hover:bg-white/5 p-2 rounded-lg transition-colors cursor-pointer flex items-center gap-2 text-xs text-indigo-400"
+                        >
+                          <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                          </svg>
+                          {user.tfa_enabled ? "Disable 2FA" : "Enable 2FA"}
+                        </button>
+                      </div>
                       <div>
                         <button
                           onClick={() => {
@@ -1410,15 +1889,103 @@ export default function App() {
 
         {/* View 1: Login Form */}
         {currentView === 'login' && (
-          <div className="min-h-[80vh] flex items-center justify-center animate-fade-in">
-            <div className="glass-panel rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-md border border-white/5">
-              <div className="text-center mb-8">
-                <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-300 to-indigo-500 bg-clip-text text-transparent">SmartFlow</h1>
-                <p className="text-slate-400 text-sm mt-2">Submission & Approval Portal</p>
+          <>
+            {/* Full-screen Open Ownership branded background image */}
+            <div className="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+              <div 
+                className="absolute inset-0 bg-cover bg-center"
+                style={{ 
+                  backgroundImage: `url('https://oo.hacdn.io/media/images/Ownership_complexity_Credit_Photo_.2e16d0ba.fill-415x300_9wMsess.jpg')`,
+                  filter: 'brightness(0.18) contrast(1.15) saturate(1.1) blur(3px)',
+                  transform: 'scale(1.05)'
+                }}
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-[#312783]/20 via-[#060913]/90 to-[#060913]" />
+            </div>
+
+            <div className="min-h-[80vh] flex items-center justify-center animate-fade-in relative z-10">
+              <div className="glass-panel rounded-2xl shadow-2xl p-6 md:p-8 w-full max-w-md border border-white/5 bg-slate-950/80 backdrop-blur-md">
+              <div className="flex flex-col items-center justify-center mb-8">
+                <OpenOwnershipLogo className="h-10 w-auto text-white mb-2" />
+                <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mt-1">Submission & Approval Portal</p>
               </div>
-              <LoginForm onLogin={handleLogin} />
+              
+              {!mfaRequired ? (
+                <LoginForm onLogin={handleLogin} />
+              ) : (
+                <form onSubmit={handleMfaSubmit} className="space-y-6 animate-fade-in">
+                  <div className="space-y-2 text-center">
+                    <h2 className="text-base font-bold text-white uppercase tracking-wider">Two-Factor Authentication</h2>
+                    <p className="text-slate-400 text-xs leading-relaxed">
+                      Enter the 6-digit verification code from your authenticator app (Google Authenticator / Authy) to complete your login.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="login-mfa-code" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider text-center">Verification Code</label>
+                    <input
+                      id="login-mfa-code"
+                      type="text"
+                      maxLength="6"
+                      pattern="\d{6}"
+                      placeholder="e.g. 123456"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                      className="w-full text-center tracking-[1em] pl-[1em] py-3 bg-slate-950 border border-white/10 rounded-xl text-white font-mono text-xl focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all"
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  {loginTotpCode && (
+                    <div className="bg-emerald-950/30 border border-emerald-500/20 rounded-xl p-3 text-center space-y-2">
+                      <div className="flex justify-between items-center text-[10px] font-bold text-emerald-400">
+                        <span className="flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                          DEV ASSISTANT ACTIVE
+                        </span>
+                        <span>Expires in {loginSecondsLeft !== null ? `${loginSecondsLeft}s` : '--'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xl font-mono text-emerald-300 font-black tracking-widest">{loginTotpCode}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMfaCode(loginTotpCode);
+                            setSuccessMsg('Code auto-filled!');
+                            setTimeout(() => setSuccessMsg(''), 1500);
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-extrabold uppercase py-1.5 px-3 rounded-lg transition-colors cursor-pointer"
+                        >
+                          Auto-fill
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    Verify Code
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMfaRequired(false);
+                      setMfaCode('');
+                      setMfaTicket('');
+                    }}
+                    className="w-full bg-transparent text-slate-400 hover:text-white transition-colors cursor-pointer text-xs font-semibold py-1 text-center font-mono"
+                  >
+                    Back to Login
+                  </button>
+                </form>
+              )}
             </div>
           </div>
+          </>
         )}
 
         {/* View 2: Dashboards */}
@@ -1490,50 +2057,14 @@ export default function App() {
 
                   {/* Status Bar Breakdown */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Status Counts distribution</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: 'DRAFT', count: getStatusCount('DRAFT', ownApps), color: 'bg-slate-400', textColor: 'text-slate-400' },
-                        { label: 'SUBMITTED', count: getStatusCount('SUBMITTED', ownApps), color: 'bg-blue-400', textColor: 'text-blue-300' },
-                        { label: 'UNDER REVIEW', count: getStatusCount('UNDER_REVIEW', ownApps), color: 'bg-orange-400', textColor: 'text-orange-300' },
-                        { label: 'APPROVED', count: getStatusCount('APPROVED', ownApps), color: 'bg-emerald-400', textColor: 'text-emerald-300' },
-                        { label: 'REJECTED', count: getStatusCount('REJECTED', ownApps), color: 'bg-rose-400', textColor: 'text-rose-300' },
-                        { label: 'RETURNED', count: getStatusCount('RETURNED', ownApps), color: 'bg-purple-400', textColor: 'text-purple-300' }
-                      ].map(bar => {
-                        const widthPct = (bar.count / getMaxCount(ownApps)) * 100;
-                        return (
-                          <div key={bar.label} className="space-y-1">
-                            <div className="flex justify-between text-xs font-medium">
-                              <span className={bar.textColor}>{bar.label}</span>
-                              <span className="text-slate-300">{bar.count} item(s)</span>
-                            </div>
-                            <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-white/5">
-                              <div className={`${bar.color} h-full rounded-full transition-all duration-500`} style={{ width: `${widthPct}%` }}></div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Application Status Distribution</h3>
+                    <InteractiveBarChart data={getStatusDistributionData(ownApps)} />
                   </div>
 
                   {/* Amount Breakdown chart */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding requested by Status</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: 'DRAFT', amt: getStatusAmount('DRAFT', ownApps), color: 'border-slate-500/20 bg-slate-500/5', textColor: 'text-slate-400' },
-                        { label: 'SUBMITTED', amt: getStatusAmount('SUBMITTED', ownApps), color: 'border-blue-500/20 bg-blue-500/5', textColor: 'text-blue-300' },
-                        { label: 'UNDER REVIEW', amt: getStatusAmount('UNDER_REVIEW', ownApps), color: 'border-orange-500/20 bg-orange-500/5', textColor: 'text-orange-300' },
-                        { label: 'APPROVED', amt: getStatusAmount('APPROVED', ownApps), color: 'border-emerald-500/20 bg-emerald-500/5', textColor: 'text-emerald-300' },
-                        { label: 'REJECTED', amt: getStatusAmount('REJECTED', ownApps), color: 'border-rose-500/20 bg-rose-500/5', textColor: 'text-rose-300' },
-                        { label: 'RETURNED', amt: getStatusAmount('RETURNED', ownApps), color: 'border-purple-500/20 bg-purple-500/5', textColor: 'text-purple-300' }
-                      ].map(card => (
-                        <div key={card.label} className={`flex justify-between items-center p-2 rounded-lg border ${card.color} text-xs`}>
-                          <span className={`${card.textColor} font-semibold`}>{card.label}</span>
-                          <span className="font-mono font-bold text-slate-100">{formatCurrency(card.amt)}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding requested by Category</h3>
+                    <InteractiveDonutChart data={getBudgetByCategoryData(ownApps)} title="Funding" />
                   </div>
 
                 </div>
@@ -1599,49 +2130,74 @@ export default function App() {
 
                   {/* Status counts distribution */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Status Counts distribution</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: 'SUBMITTED', count: getStatusCount('SUBMITTED'), color: 'bg-blue-400', textColor: 'text-blue-300' },
-                        { label: 'UNDER REVIEW', count: getStatusCount('UNDER_REVIEW'), color: 'bg-orange-400', textColor: 'text-orange-300' },
-                        { label: 'APPROVED', count: getStatusCount('APPROVED'), color: 'bg-emerald-400', textColor: 'text-emerald-300' },
-                        { label: 'REJECTED', count: getStatusCount('REJECTED'), color: 'bg-rose-400', textColor: 'text-rose-300' },
-                        { label: 'RETURNED', count: getStatusCount('RETURNED'), color: 'bg-purple-400', textColor: 'text-purple-300' }
-                      ].map(bar => {
-                        const widthPct = (bar.count / getMaxCount(applications)) * 100;
-                        return (
-                          <div key={bar.label} className="space-y-1">
-                            <div className="flex justify-between text-xs font-medium">
-                              <span className={bar.textColor}>{bar.label}</span>
-                              <span className="text-slate-300">{bar.count} item(s)</span>
-                            </div>
-                            <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-white/5">
-                              <div className={`${bar.color} h-full rounded-full transition-all duration-500`} style={{ width: `${widthPct}%` }}></div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Application Status Distribution</h3>
+                    <InteractiveBarChart data={getStatusDistributionData(applications)} />
                   </div>
 
                   {/* Amount Breakdown chart */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding request breakdown</h3>
-                    <div className="space-y-3">
-                      {[
-                        { label: 'SUBMITTED', amt: getStatusAmount('SUBMITTED'), color: 'border-blue-500/20 bg-blue-500/5', textColor: 'text-blue-300' },
-                        { label: 'UNDER REVIEW', amt: getStatusAmount('UNDER_REVIEW'), color: 'border-orange-500/20 bg-orange-500/5', textColor: 'text-orange-300' },
-                        { label: 'APPROVED', amt: getStatusAmount('APPROVED'), color: 'border-emerald-500/20 bg-emerald-500/5', textColor: 'text-emerald-300' },
-                        { label: 'REJECTED', amt: getStatusAmount('REJECTED'), color: 'border-rose-500/20 bg-rose-500/5', textColor: 'text-rose-300' },
-                        { label: 'RETURNED', amt: getStatusAmount('RETURNED'), color: 'border-purple-500/20 bg-purple-500/5', textColor: 'text-purple-300' }
-                      ].map(card => (
-                        <div key={card.label} className={`flex justify-between items-center p-2 rounded-lg border ${card.color} text-xs`}>
-                          <span className={`${card.textColor} font-semibold`}>{card.label}</span>
-                          <span className="font-mono font-bold text-slate-100">{formatCurrency(card.amt)}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding request by Category</h3>
+                    <InteractiveDonutChart data={getBudgetByCategoryData(applications)} title="Funding" />
                   </div>
+
+                  {/* Bottlenecks Timeline */}
+                  {(() => {
+                    const metrics = calculateBottleneckMetrics();
+                    return (
+                      <div className="glass-panel rounded-xl p-5 space-y-5 col-span-1 md:col-span-2">
+                        <div className="flex justify-between items-center border-b border-white/5 pb-2">
+                          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Review Bottlenecks (Average Durations)</h3>
+                          <span className="text-[10px] text-slate-500 font-semibold bg-white/5 border border-white/5 px-2 py-0.5 rounded">
+                            Based on {metrics.queueCount + metrics.decisionCount} transitions
+                          </span>
+                        </div>
+                        
+                        {metrics.queueCount === 0 && metrics.decisionCount === 0 ? (
+                          <div className="text-center py-6 text-xs text-slate-500">
+                            No review transition logs recorded yet to analyze bottlenecks.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-2">
+                            {/* Step 1: In Queue */}
+                            <div className="glass-panel rounded-xl p-4 bg-white/1 border-white/5 flex flex-col justify-between">
+                              <div className="space-y-1">
+                                <span className="text-[9px] text-indigo-400 font-extrabold uppercase tracking-widest">Step 1: Queue Duration</span>
+                                <p className="text-slate-400 text-xs leading-relaxed">Time elapsed from initial submission until a reviewer starts review.</p>
+                              </div>
+                              <div className="mt-4">
+                                <span className="text-2xl font-black text-white font-mono">{formatDuration(metrics.avgQueueTime)}</span>
+                                <div className="text-[9px] text-slate-500 mt-1 font-medium">Average across {metrics.queueCount} app(s)</div>
+                              </div>
+                            </div>
+
+                            {/* Step 2: Under Review */}
+                            <div className="glass-panel rounded-xl p-4 bg-white/1 border-white/5 flex flex-col justify-between">
+                              <div className="space-y-1">
+                                <span className="text-[9px] text-orange-400 font-extrabold uppercase tracking-widest">Step 2: Decision Duration</span>
+                                <p className="text-slate-400 text-xs leading-relaxed">Time elapsed from starting active review to final decision (Approve/Reject/Return).</p>
+                              </div>
+                              <div className="mt-4">
+                                <span className="text-2xl font-black text-white font-mono">{formatDuration(metrics.avgDecisionTime)}</span>
+                                <div className="text-[9px] text-slate-500 mt-1 font-medium">Average across {metrics.decisionCount} app(s)</div>
+                              </div>
+                            </div>
+
+                            {/* Step 3: Total Process Time */}
+                            <div className="glass-panel rounded-xl p-4 bg-white/1 border-white/5 flex flex-col justify-between">
+                              <div className="space-y-1">
+                                <span className="text-[9px] text-emerald-400 font-extrabold uppercase tracking-widest">Total Processing Loop</span>
+                                <p className="text-slate-400 text-xs leading-relaxed">Sum total of queue time and decision time (end-to-end processing loop).</p>
+                              </div>
+                              <div className="mt-4">
+                                <span className="text-2xl font-black text-emerald-400 font-mono">{formatDuration(metrics.avgTotalTime)}</span>
+                                <div className="text-[9px] text-slate-500 mt-1 font-medium">Combined average process cycle</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                 </div>
 
@@ -1758,37 +2314,72 @@ export default function App() {
                           <td className="px-4 py-3.5 font-mono font-bold text-indigo-300">{formatCurrency(app.amount)}</td>
                           <td className="px-4 py-3.5">{renderStatusBadge(app.status)}</td>
                           <td className="px-4 py-3.5 text-slate-400">{new Date(app.created_at).toLocaleDateString()}</td>
-                          <td className="px-4 py-3.5 text-right space-x-1" onClick={(e) => e.stopPropagation()}>
-                            {(app.status === 'DRAFT' || app.status === 'RETURNED') ? (
-                              <>
+                          <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1.5 flex-nowrap">
+                              {(app.status === 'DRAFT' || app.status === 'RETURNED') ? (
+                                <>
+                                  {/* Edit */}
+                                  <button
+                                    title="Edit Application"
+                                    className="inline-flex items-center gap-1 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                                    onClick={() => handleOpenEditForm(app)}
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                    </svg>
+                                    Edit
+                                  </button>
+
+                                  {/* Submit */}
+                                  <button
+                                    title="Submit Application"
+                                    className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                                    onClick={() => handleTransition(app.id, 'submit')}
+                                    disabled={actionLoading === 'submit'}
+                                  >
+                                    {actionLoading === 'submit' ? (
+                                      <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                    ) : (
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                        <polyline points="22 2 11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                      </svg>
+                                    )}
+                                    Submit
+                                  </button>
+
+                                  {/* Delete */}
+                                  <button
+                                    title="Delete Application"
+                                    className="inline-flex items-center gap-1 bg-rose-500/10 hover:bg-rose-600 border border-rose-500/20 text-rose-400 hover:text-white rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                                    onClick={() => handleDeleteApplication(app.id)}
+                                    disabled={actionLoading === `delete-${app.id}`}
+                                  >
+                                    {actionLoading === `delete-${app.id}` ? (
+                                      <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                                    ) : (
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
+                                      </svg>
+                                    )}
+                                    Delete
+                                  </button>
+                                </>
+                              ) : (
+                                /* View — for submitted/under-review/approved/rejected/returned */
                                 <button
-                                  className="bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-                                  onClick={() => handleOpenEditForm(app)}
+                                  title="View Details"
+                                  className="inline-flex items-center gap-1 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5 rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap"
+                                  onClick={() => handleSelectApp(app.id)}
                                 >
-                                  Edit
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                  </svg>
+                                  View
                                 </button>
-                                <button
-                                  className="bg-indigo-600 hover:bg-indigo-500 text-white rounded px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-                                  onClick={() => handleTransition(app.id, 'submit')}
-                                >
-                                  Submit
-                                </button>
-                                <button
-                                  className="bg-rose-500/10 hover:bg-rose-600 border border-rose-500/20 text-rose-300 hover:text-white rounded px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-                                  onClick={() => handleDeleteApplication(app.id)}
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                className="bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5 rounded px-3 py-1 text-[11px] font-semibold transition-colors cursor-pointer"
-                                onClick={() => handleSelectApp(app.id)}
-                              >
-                                View
-                              </button>
-                            )}
+                              )}
+                            </div>
                           </td>
+
                         </tr>
                       ))}
                     </tbody>
@@ -1979,9 +2570,13 @@ export default function App() {
                       </button>
                       <button
                         type="submit"
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-lg transition-all cursor-pointer"
+                        disabled={actionLoading === 'save'}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-lg transition-all cursor-pointer disabled:opacity-60 flex items-center gap-2"
                       >
-                        {isEditing ? 'Save Changes' : 'Create Draft'}
+                        {actionLoading === 'save' && (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        )}
+                        {actionLoading === 'save' ? 'Saving...' : (isEditing ? 'Save Changes' : 'Create Draft')}
                       </button>
                     </div>
                   </form>
@@ -2787,13 +3382,18 @@ export default function App() {
                         This application has been submitted and is currently in the queue. You must start the review process before making an evaluation.
                       </p>
                       <button
-                        className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                        className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60"
                         onClick={() => handleTransition(selectedApp.id, 'start-review')}
+                        disabled={actionLoading === 'start-review'}
                       >
-                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                        Start Evaluation Review
+                        {actionLoading === 'start-review' ? (
+                          <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        ) : (
+                          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polygon points="5 3 19 12 5 21 5 3" />
+                          </svg>
+                        )}
+                        {actionLoading === 'start-review' ? 'Starting...' : 'Start Evaluation Review'}
                       </button>
                     </div>
                   )}
@@ -2819,9 +3419,13 @@ export default function App() {
                           onClick={async () => {
                             await handleTransition(selectedApp.id, 'approve', { comment });
                           }}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer"
+                          disabled={!!actionLoading}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-60 flex items-center gap-2"
                         >
-                          Approve Application
+                          {actionLoading === 'approve' && (
+                            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          )}
+                          {actionLoading === 'approve' ? 'Approving...' : 'Approve Application'}
                         </button>
                         <button
                           onClick={async () => {
@@ -2831,9 +3435,13 @@ export default function App() {
                             }
                             await handleTransition(selectedApp.id, 'return', { comment });
                           }}
-                          className="bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer"
+                          disabled={!!actionLoading}
+                          className="bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-60 flex items-center gap-2"
                         >
-                          Return Application
+                          {actionLoading === 'return' && (
+                            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          )}
+                          {actionLoading === 'return' ? 'Returning...' : 'Return Application'}
                         </button>
                         <button
                           onClick={async () => {
@@ -2843,9 +3451,13 @@ export default function App() {
                             }
                             await handleTransition(selectedApp.id, 'reject', { comment });
                           }}
-                          className="bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer"
+                          disabled={!!actionLoading}
+                          className="bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-60 flex items-center gap-2"
                         >
-                          Reject Application
+                          {actionLoading === 'reject' && (
+                            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          )}
+                          {actionLoading === 'reject' ? 'Rejecting...' : 'Reject Application'}
                         </button>
                       </div>
                     </div>
@@ -2902,8 +3514,195 @@ export default function App() {
             </div>
           </div>
         )}
+        {/* View: Login Activity Audit */}
+        {currentView === 'audit-logs-login' && user && (() => {
+          const filteredLoginLogs = loginAuditLogs.filter(l => {
+            const q = loginAuditSearch.toLowerCase();
+            return (
+              (l.user_name || '').toLowerCase().includes(q) ||
+              (l.user_email || '').toLowerCase().includes(q) ||
+              (l.user_role || '').toLowerCase().includes(q) ||
+              (l.activity || '').toLowerCase().includes(q) ||
+              (l.ip_address || '').toLowerCase().includes(q) ||
+              l.user_id.toString().includes(q)
+            );
+          });
+
+          const paginatedLoginLogs = filteredLoginLogs.slice((loginAuditPage - 1) * ITEMS_PER_PAGE, loginAuditPage * ITEMS_PER_PAGE);
+          const totalLoginPages = Math.ceil(filteredLoginLogs.length / ITEMS_PER_PAGE);
+
+          const parseUA = (ua = '') => {
+            if (!ua) return { browser: '—', os: '—' };
+            let browser = 'Unknown';
+            if (ua.includes('Edg/') || ua.includes('Edge/')) browser = 'Edge';
+            else if (ua.includes('Chrome/') && !ua.includes('Chromium')) browser = 'Chrome';
+            else if (ua.includes('Firefox/')) browser = 'Firefox';
+            else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = 'Safari';
+            else if (ua.includes('Opera') || ua.includes('OPR/')) browser = 'Opera';
+            let os = 'Unknown';
+            if (ua.includes('Windows NT')) os = 'Windows';
+            else if (ua.includes('Mac OS X')) os = 'macOS';
+            else if (ua.includes('Linux') && !ua.includes('Android')) os = 'Linux';
+            else if (ua.includes('Android')) os = 'Android';
+            else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
+            return { browser, os };
+          };
+
+          const loginCount = filteredLoginLogs.filter(l => l.activity === 'LOGIN').length;
+          const logoutCount = filteredLoginLogs.filter(l => l.activity === 'LOGOUT').length;
+          const uniqueUsers = new Set(filteredLoginLogs.map(l => l.user_id)).size;
+
+          return (
+            <div className="max-w-6xl mx-auto animate-fade-in space-y-6">
+              {/* Header */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => { setCurrentView('dashboard'); fetchApplications(); }}
+                    className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+                    </svg>
+                    Back to Dashboard
+                  </button>
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Login Activity</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Authentication events — logins, logouts, IPs &amp; devices</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Total Events</div>
+                    <div className="text-2xl font-black text-white mt-1">{filteredLoginLogs.length}</div>
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                  </div>
+                </div>
+                <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Logins</div>
+                    <div className="text-2xl font-black text-emerald-400 mt-1">{loginCount}</div>
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>
+                  </div>
+                </div>
+                <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Logouts / Users</div>
+                    <div className="text-2xl font-black text-rose-400 mt-1">{logoutCount} <span className="text-sm text-slate-400">/ {uniqueUsers}</span></div>
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+                    <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search */}
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search by name, email, role, IP, activity..."
+                  value={loginAuditSearch}
+                  onChange={e => setLoginAuditSearch(e.target.value)}
+                  className="w-full max-w-sm pl-9 pr-9 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                />
+              </div>
+
+              {/* Table */}
+              <div className="glass-panel rounded-xl overflow-hidden border border-white/5 shadow-xl">
+                <div className="px-5 py-4 border-b border-white/5 flex justify-between items-center bg-slate-950/40">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">Auth Events</h3>
+                  <span className="text-xs text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/5">{filteredLoginLogs.length} events</span>
+                </div>
+
+                {loadingLoginAudit ? (
+                  <div className="p-12 flex items-center justify-center gap-3 text-slate-400 text-xs">
+                    <svg className="animate-spin w-5 h-5 text-indigo-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    Loading activity...
+                  </div>
+                ) : filteredLoginLogs.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-white/5 text-slate-400 bg-white/1 uppercase tracking-wider text-[10px] font-bold">
+                          <th className="px-4 py-3">#</th>
+                          <th className="px-4 py-3">User</th>
+                          <th className="px-4 py-3">Role</th>
+                          <th className="px-4 py-3">Activity</th>
+                          <th className="px-4 py-3">IP Address</th>
+                          <th className="px-4 py-3">Browser / OS</th>
+                          <th className="px-4 py-3">Timestamp</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {paginatedLoginLogs.map((l, i) => {
+                          const { browser, os } = parseUA(l.user_agent);
+                          return (
+                            <tr key={l.id} className="hover:bg-white/2 transition-colors">
+                              <td className="px-4 py-3 text-slate-500 font-mono text-[10px]">{l.id}</td>
+                              <td className="px-4 py-3">
+                                <div className="font-semibold text-slate-200">{l.user_name}</div>
+                                <div className="text-slate-500 text-[10px] mt-0.5">{l.user_email}</div>
+                                <div className="text-slate-600 text-[9px] font-mono">UID: {l.user_id}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                  l.user_role === 'superuser' ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30' :
+                                  l.user_role === 'reviewer'  ? 'bg-orange-500/10 text-orange-300 border-orange-500/30' :
+                                  'bg-slate-500/10 text-slate-400 border-slate-500/30'
+                                }`}>{l.user_role}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {l.activity === 'LOGIN' ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-300 border-emerald-500/30">
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4M10 17l5-5-5-5M15 12H3" /></svg>
+                                    LOGIN
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border bg-rose-500/10 text-rose-300 border-rose-500/30">
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+                                    LOGOUT
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 font-mono text-indigo-300 text-xs">{l.ip_address || '—'}</td>
+                              <td className="px-4 py-3">
+                                <div className="text-slate-300 font-semibold">{browser}</div>
+                                <div className="text-slate-500 text-[10px]">{os}</div>
+                              </td>
+                              <td className="px-4 py-3 text-slate-400 text-[11px] whitespace-nowrap">
+                                {new Date(l.created_at).toLocaleString()}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-12 text-center text-slate-400 border border-dashed border-white/10">
+                    {loginAuditSearch ? 'No matching events found.' : 'No login activity recorded yet.'}
+                  </div>
+                )}
+                {renderPagination(loginAuditPage, totalLoginPages, filteredLoginLogs.length, setLoginAuditPage)}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Session Expiry Warning Modal */}
         {showWarningModal && (
+
           <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <div className="glass-panel rounded-2xl p-6 md:p-8 shadow-2xl border border-white/10 w-full max-w-sm animate-fade-in space-y-6 bg-slate-950/90 text-center">
               <div className="flex justify-center">
@@ -2937,6 +3736,128 @@ export default function App() {
                   Logout
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Two-Factor Authentication Setup Modal */}
+        {isTfaModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="glass-panel rounded-2xl p-6 md:p-8 shadow-2xl border border-white/10 w-full max-w-sm animate-fade-in space-y-6 bg-slate-950/90 text-center">
+              <div className="flex justify-between items-center border-b border-white/5 pb-4 text-left">
+                <div>
+                  <h2 className="text-base font-bold text-white uppercase tracking-wider">Configure Two-Factor Auth</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Secure your SmartFlow portal account</p>
+                </div>
+                <button
+                  onClick={() => setIsTfaModalOpen(false)}
+                  className="text-slate-500 hover:text-white transition-colors cursor-pointer"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* QR Code and Secret */}
+              <div className="space-y-4 flex flex-col items-center">
+                <p className="text-slate-300 text-xs text-left leading-relaxed">
+                  1. Scan the QR code below using your mobile authenticator app (Google Authenticator, Authy, or 1Password):
+                </p>
+                
+                {tfaQRCodeURL && (
+                  <div className="bg-white p-3 rounded-xl border border-white/10 shadow-lg">
+                    <img src={tfaQRCodeURL} className="w-44 h-44 object-contain" alt="2FA Setup QR Code" />
+                  </div>
+                )}
+
+                <div className="w-full space-y-1.5 text-left">
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    Or copy this secret key manually:
+                  </p>
+                  <div className="flex items-center gap-2 bg-slate-950 p-2.5 rounded-lg border border-white/10 font-mono text-[11px] text-indigo-300 select-all justify-between">
+                    <span className="truncate">{tfaSecret}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(tfaSecret);
+                        setSuccessMsg('Secret key copied!');
+                        setTimeout(() => setSuccessMsg(''), 2000);
+                      }}
+                      className="text-slate-400 hover:text-white transition-colors text-[10px] uppercase font-bold flex-shrink-0 cursor-pointer"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                </div>
+
+                {/* Web-based dynamic TOTP helper */}
+                {tfaSecret && (
+                  <div className="w-full space-y-1.5 text-left pt-2">
+                    <p className="text-emerald-400 text-xs font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+                      Auto-Generated Verification Code:
+                    </p>
+                    <div className="flex items-center justify-between bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-500/20 font-mono text-sm text-emerald-300">
+                      <span className="font-extrabold tracking-widest">{modalTotpCode || 'Generating...'}</span>
+                      <div className="flex items-center gap-2">
+                        {modalSecondsLeft !== null && (
+                          <span className="text-[10px] text-emerald-500 font-bold font-mono bg-emerald-950 px-1.5 py-0.5 rounded">
+                            {modalSecondsLeft}s
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTfaVerifyCode(modalTotpCode);
+                            setSuccessMsg('Code auto-filled!');
+                            setTimeout(() => setSuccessMsg(''), 1500);
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] uppercase font-extrabold px-2 py-1 rounded transition-colors cursor-pointer"
+                        >
+                          Auto-fill
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Verify OTP Input */}
+              <form onSubmit={handleConfirm2FA} className="space-y-4 border-t border-white/5 pt-4 text-left">
+                <div className="space-y-1.5">
+                  <label htmlFor="setup-mfa-code" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    2. Enter Code to verify:
+                  </label>
+                  <input
+                    id="setup-mfa-code"
+                    type="text"
+                    maxLength="6"
+                    pattern="\d{6}"
+                    placeholder="e.g. 123456"
+                    value={tfaVerifyCode}
+                    onChange={(e) => setTfaVerifyCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full text-center tracking-[0.5em] pl-[0.5em] py-2 bg-slate-950 border border-white/10 rounded-lg text-white font-mono text-base focus:outline-none focus:border-indigo-500 transition-all"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTfaModalOpen(false)}
+                    className="bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 rounded-xl text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs py-2 px-4 rounded-xl shadow-lg transition-all cursor-pointer"
+                  >
+                    Confirm &amp; Enable
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -2986,8 +3907,21 @@ function LoginForm({ onLogin }) {
         />
       </div>
 
-      <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer" disabled={loading}>
-        {loading ? 'Signing in...' : 'Sign In'}
+      <button
+        type="submit"
+        id="login-submit-btn"
+        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm py-2.5 px-4 rounded-xl shadow-lg transition-all cursor-pointer disabled:opacity-70 flex items-center justify-center gap-2"
+        disabled={loading}
+      >
+        {loading ? (
+          <>
+            <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            Signing In...
+          </>
+        ) : 'Sign In'}
       </button>
     </form>
   );
@@ -3070,5 +4004,217 @@ function UserRow({ user, onSave, isSelf }) {
         </button>
       </td>
     </tr>
+  );
+}
+
+// Subcomponent: InteractiveDonutChart
+function InteractiveDonutChart({ data, title }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+  
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  if (total === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 text-slate-500 text-xs">
+        No budget data recorded in this category.
+      </div>
+    );
+  }
+
+  const radius = 50;
+  const strokeWidth = 12;
+  const circumference = 2 * Math.PI * radius; // ~314.16
+  
+  let accumulatedPercent = 0;
+
+  const formatCurrency = (val) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    }).format(val);
+  };
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-center gap-6 p-2">
+      {/* Chart SVG */}
+      <div className="relative w-44 h-44 flex-shrink-0">
+        <svg viewBox="0 0 120 120" className="w-full h-full transform -rotate-90">
+          {/* Background circle */}
+          <circle
+            cx="60"
+            cy="60"
+            r={radius}
+            fill="transparent"
+            stroke="rgba(255, 255, 255, 0.03)"
+            strokeWidth={strokeWidth}
+          />
+          {data.map((item, idx) => {
+            const percentage = (item.value / total) * 100;
+            const strokeLength = (item.value / total) * circumference;
+            const strokeOffset = circumference - (accumulatedPercent / 100) * circumference;
+            accumulatedPercent += percentage;
+
+            const isHovered = hoveredIdx === idx;
+            const currentStrokeWidth = isHovered ? strokeWidth + 3 : strokeWidth;
+
+            return (
+              <circle
+                key={item.label}
+                cx="60"
+                cy="60"
+                r={radius}
+                fill="transparent"
+                stroke={item.color}
+                strokeWidth={currentStrokeWidth}
+                strokeDasharray={`${strokeLength} ${circumference}`}
+                strokeDashoffset={strokeOffset}
+                strokeLinecap="round"
+                className="transition-all duration-300 cursor-pointer"
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{
+                  filter: isHovered ? `drop-shadow(0 0 6px ${item.color}80)` : 'none'
+                }}
+              />
+            );
+          })}
+        </svg>
+
+        {/* Center Text (Interactive Tooltip) */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 pointer-events-none">
+          {hoveredIdx !== null ? (
+            <>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider line-clamp-1">
+                {data[hoveredIdx].label}
+              </span>
+              <span className="text-sm font-black text-white mt-0.5">
+                {data[hoveredIdx].formattedValue || data[hoveredIdx].value}
+              </span>
+              <span className="text-[10px] font-bold text-indigo-400 mt-0.5">
+                {((data[hoveredIdx].value / total) * 100).toFixed(1)}%
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest">
+                Total
+              </span>
+              <span className="text-base font-black text-white mt-0.5">
+                {title === 'Funding' ? formatCurrency(total) : total}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex-1 space-y-2 text-xs w-full max-h-48 overflow-y-auto pr-1">
+        {data.map((item, idx) => {
+          const pct = ((item.value / total) * 100).toFixed(1);
+          const isHovered = hoveredIdx === idx;
+          return (
+            <div
+              key={item.label}
+              className={`flex items-center justify-between p-1.5 rounded-lg border transition-all cursor-pointer ${
+                isHovered ? 'bg-white/5 border-white/10' : 'bg-transparent border-transparent'
+              }`}
+              onMouseEnter={() => setHoveredIdx(idx)}
+              onMouseLeave={() => setHoveredIdx(null)}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
+                <span className={`font-semibold transition-colors truncate max-w-[100px] ${isHovered ? 'text-white' : 'text-slate-400'}`}>
+                  {item.label}
+                </span>
+              </div>
+              <div className="text-right font-mono">
+                <span className="text-slate-200 font-bold">{item.formattedValue || item.value}</span>
+                <span className="text-slate-500 text-[10px] ml-1.5">({pct}%)</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Subcomponent: InteractiveBarChart
+function InteractiveBarChart({ data }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
+  const maxVal = Math.max(...data.map(d => d.value), 0);
+  
+  return (
+    <div className="space-y-4 p-2">
+      <div className="relative h-44 flex items-end justify-between gap-2 pt-6">
+        {data.map((item, idx) => {
+          const pct = maxVal > 0 ? (item.value / maxVal) * 100 : 0;
+          const isHovered = hoveredIdx === idx;
+          return (
+            <div
+              key={item.label}
+              className="flex-1 flex flex-col items-center gap-2 group cursor-pointer"
+              onMouseEnter={() => setHoveredIdx(idx)}
+              onMouseLeave={() => setHoveredIdx(null)}
+            >
+              {/* Tooltip on top */}
+              <div className={`absolute top-0 bg-slate-950 border border-white/10 text-white text-[10px] font-bold px-2 py-1 rounded-md shadow-lg transition-all duration-300 pointer-events-none ${
+                isHovered ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-1 scale-95'
+              }`}>
+                {item.label}: <span className="text-indigo-300 font-extrabold">{item.value}</span>
+              </div>
+
+              {/* Bar container */}
+              <div className="w-full flex items-end justify-center h-28 relative">
+                <div
+                  className={`w-4 sm:w-6 rounded-t-md transition-all duration-500 origin-bottom`}
+                  style={{
+                    height: `${pct}%`,
+                    backgroundColor: item.color,
+                    boxShadow: isHovered ? `0 0 12px ${item.color}80` : 'none',
+                    filter: isHovered ? 'brightness(1.1)' : 'none',
+                  }}
+                />
+              </div>
+
+              {/* Label below */}
+              <span className={`text-[9px] font-bold uppercase tracking-wider text-center truncate w-full transition-colors ${
+                isHovered ? 'text-white' : 'text-slate-500'
+              }`}>
+                {item.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Subcomponent: OpenOwnershipLogo
+function OpenOwnershipLogo({ className = "h-12 w-auto" }) {
+  return (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 669 198">
+      <defs>
+        <style>{`.cls-emblem{fill:#3b25d8;}`}</style>
+      </defs>
+      <g id="Wordmark" fill="currentColor">
+        <path d="M0,37.43q.29-18,9.45-27.69T34.12,0Q50.19.09,59.17,9.64t9.07,27.79Q68.06,55.39,59,65T34.12,74.86Q17.77,74.77,9,65.12T0,37.43M34.12,63.52A14.69,14.69,0,0,0,47,56.9q4.44-6.52,4.53-19.47-.09-12.94-4.82-19.66a14.87,14.87,0,0,0-12.57-6.62,14.45,14.45,0,0,0-12.76,6.62q-4.44,6.53-4.54,19.66T21.27,57q4.35,6.51,12.85,6.52"/>
+        <path d="M76.8,22.68H91.26v8.23h.19a17.71,17.71,0,0,1,5.76-6.43,19,19,0,0,1,10.21-2.93A18.33,18.33,0,0,1,122,27.69q5.56,6.24,5.76,20.14-.09,12.75-5.95,19.75t-15.79,7a16.89,16.89,0,0,1-8.88-2.27,13,13,0,0,1-5-5.3h-.29V91.12h-15ZM91.64,50.76a17.26,17.26,0,0,0,2.55,9.83,9.09,9.09,0,0,0,7.84,4,8.55,8.55,0,0,0,7.66-4.16q2.75-4.26,2.74-12.38t-2.55-12.1q-2.55-4.07-7.94-4.07a9.33,9.33,0,0,0-7.37,3.59Q91.74,39,91.64,45.27Z"/>
+        <path d="M181.69,58.6a17,17,0,0,1-7.47,11.72q-6.15,4.26-16.54,4.35-12.28-.19-18.62-7.28t-6.43-19.47q.09-11.81,6.62-19.09t18.62-7.37q12.75.28,18.52,7.46t5.77,18.62v4H147.75q.48,6.81,3.12,9.93a8.87,8.87,0,0,0,7.28,3.12q4.35-.09,6.24-1.89a7.65,7.65,0,0,0,2.55-4.07ZM166.85,42.25a16.29,16.29,0,0,0-2.56-8.41,7.4,7.4,0,0,0-6.42-3,8.48,8.48,0,0,0-7.09,3.12c-1.64,2.08-2.65,5.08-3,9h19.1Z"/>
+        <path d="M222.93,43.76a36.09,36.09,0,0,0-.28-4.82,8.37,8.37,0,0,0-1.23-3.59,5.79,5.79,0,0,0-2.74-2.17,8.7,8.7,0,0,0-3.78-.76q-5,0-7.66,3t-2.55,8.6v29.3h-15V22.69h14.46V31h.19a17.11,17.11,0,0,1,6-6.61q4-2.66,10.49-2.74,9.08,0,13.14,4.72T238,40.45v32.9h-15Z"/>
+        <path d="M0,138.92q.29-18,9.48-27.76t24.73-9.77q16.11.1,25.12,9.67t9.1,27.86q-.2,18-9.29,27.68t-24.93,9.86Q17.82,176.35,9,166.69T0,138.92m34.21,26.16a14.72,14.72,0,0,0,12.89-6.63q4.45-6.54,4.55-19.53-.09-13-4.83-19.71a14.92,14.92,0,0,0-12.61-6.63,14.48,14.48,0,0,0-12.79,6.63q-4.46,6.54-4.55,19.71t4.45,19.62q4.37,6.54,12.89,6.54"/>
+        <path d="M72.35,124.14h14.5l6.73,25.59c.63,2.72,1.11,5.15,1.42,7.3s.48,3.28.48,3.41h.28c0-.13.25-1.26.76-3.41s1-4.55,1.8-7.21l7.58-25.68h12.23l7.58,25.68q1.14,4,1.8,7.21c.44,2.15.66,3.28.66,3.41h.38c0-.13.19-1.26.57-3.41s.92-4.55,1.61-7.21l6.64-25.68h13.17l-14.69,50.8h-14.5l-6.16-20.19q-1.43-5-2.46-9.95t-1-5.4h-.19q-.09.38-1.13,5.4t-2.66,9.95l-6.25,20.19H87.14Z"/>
+        <path d="M189,145.27a36.15,36.15,0,0,0-.28-4.83,8.42,8.42,0,0,0-1.23-3.6,5.84,5.84,0,0,0-2.75-2.18,8.78,8.78,0,0,0-3.79-.76q-5,0-7.68,3c-1.7,2-2.56,4.9-2.56,8.63v29.38H155.59v-50.8h14.5v8.34h.19a17.19,17.19,0,0,1,6-6.63q4-2.66,10.52-2.75,9.1,0,13.18,4.74T204,142v33H189Z"/>
+        <path d="M260.11,160.15a17,17,0,0,1-7.49,11.76q-6.15,4.26-16.58,4.36-12.33-.2-18.67-7.3t-6.45-19.53q.09-11.83,6.64-19.14t18.67-7.39q12.79.28,18.57,7.48t5.79,18.68v4h-34.5q.47,6.82,3.12,9.95a8.92,8.92,0,0,0,7.3,3.13c2.91-.07,5-.7,6.26-1.9a7.7,7.7,0,0,0,2.56-4.08Zm-14.88-16.39a16.22,16.22,0,0,0-2.56-8.44,7.42,7.42,0,0,0-6.44-3,8.5,8.5,0,0,0-7.11,3.13c-1.64,2.08-2.66,5.08-3,9h19.14Z"/>
+        <path d="M268.11,124.14h14.22v10.71h.19a17.05,17.05,0,0,1,6.91-8.63,18.23,18.23,0,0,1,9.86-2.93h.85v13.64h-2.65q-6.92-.09-10.61,2.75t-3.79,10.14v25.12h-15Z"/>
+        <path d="M332.62,138.26a5.87,5.87,0,0,0-2-4.07A9.52,9.52,0,0,0,320,134a4.57,4.57,0,0,0-1.8,3.79,4.62,4.62,0,0,0,1.32,3.41,8.61,8.61,0,0,0,4.55,1.71l8.63,1.13q7,.86,10.8,4.46T347.41,159q-.2,8.52-6.16,12.89t-15.93,4.45q-11.28-.2-16.58-4.74a15.43,15.43,0,0,1-5.69-11.46h13.84A6.49,6.49,0,0,0,319,164.8q2,1.8,6.45,1.89a10.66,10.66,0,0,0,5.88-1.42,5,5,0,0,0,2.18-4.17,4.28,4.28,0,0,0-1.24-3.5q-1.32-1.23-4.83-1.71l-8.15-1.14q-7.11-.94-11-4.64t-3.89-10.52a15.43,15.43,0,0,1,5.12-11.66q5.12-4.83,15.92-5,9.94.09,15,4.36a15,15,0,0,1,5.5,11Z"/>
+        <path d="M388,145.18a36.15,36.15,0,0,0-.28-4.83,8.3,8.3,0,0,0-1.23-3.51,5.84,5.84,0,0,0-2.75-2.18,8.78,8.78,0,0,0-3.79-.76q-5,0-7.68,3c-1.71,2-2.56,4.9-2.56,8.63v29.38H354.59V100.26h15.07v32h.19a16.26,16.26,0,0,1,5.69-6.35,18.1,18.1,0,0,1,10.23-2.84q9.11,0,13.18,4.74T403,142v33H388Z"/>
+        <path d="M412.47,101.68h15.26v13.65H412.47Zm.09,22.46h15.07v50.8H412.56Z"/>
+        <path d="M437.58,124.14h14.5v8.25h.19a17.74,17.74,0,1,1,5.78-6.45A19,19,0,0,1,468.28,123a18.39,18.39,0,0,1,14.6,6.16q5.6,6.26,5.78,20.19-.09,12.79-6,19.81t-15.83,7A16.91,16.91,0,0,1,458,173.9a13,13,0,0,1-5-5.31h-.28v24.17H437.58Zm14.88,28.15a17.29,17.29,0,0,0,2.56,9.86,9.12,9.12,0,0,0,7.86,4,8.56,8.56,0,0,0,7.68-4.17c1.83-2.85,2.75-7,2.75-12.42s-.86-9.41-2.56-12.13-4.36-4.08-8-4.08a9.39,9.39,0,0,0-7.4,3.6q-2.83,3.51-2.93,9.86Z"/>
+      </g>
+      <path id="Emblem" className="cls-emblem" d="M647.5,80.77V48.23a24.19,24.19,0,1,0-5.37,0V75.66a23.71,23.71,0,0,0-7.29-8.32c-7.9-5.53-18.3-5.53-30.34-5.53-11.13,0-20.75,0-27.25-4.55a20.27,20.27,0,0,1-7.08-9.63,24.23,24.23,0,1,0-6,.74h.52c2.07,5.94,5.17,10.28,9.45,13.28,7.9,5.53,18.3,5.53,30.34,5.53,11.13,0,20.75,0,27.25,4.55a20.34,20.34,0,0,1,7.09,9.63,24.19,24.19,0,1,0,8.66-.6M545.38,24.19A18.81,18.81,0,1,1,564.19,43a18.83,18.83,0,0,1-18.81-18.81m80.62,0A18.82,18.82,0,1,1,644.81,43,18.84,0,0,1,626,24.19"/>
+    </svg>
   );
 }

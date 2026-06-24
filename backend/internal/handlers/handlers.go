@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/reaganchita/approval-workflow/backend/internal/auth"
@@ -37,10 +39,18 @@ func respondError(w http.ResponseWriter, status int, message string) {
 func (h *Handlers) RegisterRoutes(r chi.Router) {
 	// Auth
 	r.Post("/api/login", h.Login)
+	r.Post("/api/login/mfa", h.LoginMFA)
+	r.Get("/api/2fa/dev-code", h.GetDev2FACode)
+	r.Post("/api/logout", h.Logout) // requires token for audit
 
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Authenticate)
+
+		// 2FA Management
+		r.Post("/api/2fa/setup", h.Setup2FA)
+		r.Post("/api/2fa/enable", h.Enable2FA)
+		r.Post("/api/2fa/disable", h.Disable2FA)
 
 		// Create/Own view
 		r.Group(func(r chi.Router) {
@@ -83,6 +93,7 @@ func (h *Handlers) RegisterRoutes(r chi.Router) {
 		// Shared routes (Applicant own / Reviewer all)
 		r.Get("/api/applications/{id}", h.GetApplicationDetails)
 		r.Get("/api/audit-logs", h.GetAuditLogs)
+		r.Get("/api/login-audit-logs", h.GetLoginAuditLogs)
 		r.Get("/api/notifications", h.GetNotifications)
 		r.Put("/api/notifications/{id}/read", h.ReadNotification)
 		r.Post("/api/notifications/read-all", h.ReadAllNotifications)
@@ -125,6 +136,23 @@ func (h *Handlers) RequirePermission(requiredPerm string) func(http.Handler) htt
 	}
 }
 
+// getClientIP extracts the real client IP from common proxy headers
+func getClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		parts := strings.SplitN(ip, ",", 2)
+		return strings.TrimSpace(parts[0])
+	}
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	// Strip port from RemoteAddr
+	addr := r.RemoteAddr
+	if i := strings.LastIndex(addr, ":"); i != -1 {
+		return addr[:i]
+	}
+	return addr
+}
+
 // Auth Handlers
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req models.LoginRequest
@@ -148,17 +176,88 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.TFAEnabled {
+		tempToken, err := auth.GenerateTempJWT(user.ID, user.Email, user.Role)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Could not generate temporary token")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"mfa_required": true,
+			"ticket":       tempToken,
+		})
+		return
+	}
+
 	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Could not generate token")
 		return
 	}
 
+	// Record login audit event
+	auditEntry := &models.LoginAuditLog{
+		UserID:    user.ID,
+		UserName:  user.Name,
+		UserEmail: user.Email,
+		UserRole:  user.Role,
+		Activity:  "LOGIN",
+		IPAddress: getClientIP(r),
+		UserAgent: r.UserAgent(),
+	}
+	_ = h.repo.CreateLoginAuditLog(auditEntry)
+
 	respondJSON(w, http.StatusOK, models.LoginResponse{
 		Token: token,
 		User:  *user,
 	})
 }
+
+// Logout records a logout audit event (token still required to identify user)
+func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
+	// Try to get user from Authorization header (best-effort — token may be expired)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		respondJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+		return
+	}
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	claims, err := auth.ValidateJWT(tokenStr)
+	if err != nil {
+		// Token expired/invalid — still acknowledge logout gracefully
+		respondJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+		return
+	}
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+		return
+	}
+
+	uaFromBody := r.UserAgent()
+	if r.Body != nil {
+		var req models.LogoutRequest
+		if decErr := json.NewDecoder(r.Body).Decode(&req); decErr == nil && req.UserAgent != "" {
+			uaFromBody = req.UserAgent
+		}
+	}
+
+	auditEntry := &models.LoginAuditLog{
+		UserID:    user.ID,
+		UserName:  user.Name,
+		UserEmail: user.Email,
+		UserRole:  user.Role,
+		Activity:  "LOGOUT",
+		IPAddress: getClientIP(r),
+		UserAgent: uaFromBody,
+	}
+	_ = h.repo.CreateLoginAuditLog(auditEntry)
+
+	respondJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+}
+
 
 // Applicant Handlers
 func (h *Handlers) CreateApplication(w http.ResponseWriter, r *http.Request) {
@@ -468,6 +567,34 @@ func (h *Handlers) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 
 	if logs == nil {
 		logs = []models.AuditLog{}
+	}
+
+	respondJSON(w, http.StatusOK, logs)
+}
+
+func (h *Handlers) GetLoginAuditLogs(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.GetUserClaims(r.Context())
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	var logs []models.LoginAuditLog
+	if user.Role == models.RoleReviewer || user.Role == models.RoleSuperuser {
+		logs, err = h.repo.GetAllLoginAuditLogs()
+	} else {
+		logs, err = h.repo.GetLoginAuditLogsByUserID(claims.UserID)
+	}
+
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to retrieve login audit logs")
+		return
+	}
+
+	if logs == nil {
+		logs = []models.LoginAuditLog{}
 	}
 
 	respondJSON(w, http.StatusOK, logs)
@@ -890,4 +1017,205 @@ func (h *Handlers) ReadAllNotifications(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "success"})
+}
+
+type LoginMFARequest struct {
+	Ticket string `json:"ticket"`
+	Code   string `json:"code"`
+}
+
+func (h *Handlers) LoginMFA(w http.ResponseWriter, r *http.Request) {
+	var req LoginMFARequest
+	if r.Body == nil {
+		respondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	claims, err := auth.ValidateJWT(req.Ticket)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Invalid or expired ticket")
+		return
+	}
+
+	if !claims.MFAPending {
+		respondError(w, http.StatusBadRequest, "Invalid ticket state")
+		return
+	}
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "User not found")
+		return
+	}
+
+	if !user.TFAEnabled || user.TFASecret == nil {
+		respondError(w, http.StatusBadRequest, "2FA is not enabled for this user")
+		return
+	}
+
+	if !auth.VerifyTOTP(*user.TFASecret, req.Code) {
+		respondError(w, http.StatusUnauthorized, "Invalid verification code")
+		return
+	}
+
+	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Could not generate token")
+		return
+	}
+
+	auditEntry := &models.LoginAuditLog{
+		UserID:    user.ID,
+		UserName:  user.Name,
+		UserEmail: user.Email,
+		UserRole:  user.Role,
+		Activity:  "LOGIN",
+		IPAddress: getClientIP(r),
+		UserAgent: r.UserAgent(),
+	}
+	_ = h.repo.CreateLoginAuditLog(auditEntry)
+
+	respondJSON(w, http.StatusOK, models.LoginResponse{
+		Token: token,
+		User:  *user,
+	})
+}
+
+func (h *Handlers) Setup2FA(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.GetUserClaims(r.Context())
+	
+	secret, err := auth.GenerateSecret()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Could not generate 2FA secret")
+		return
+	}
+
+	err = h.repo.UpdateUser2FA(claims.UserID, secret, false)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to initialize 2FA secret")
+		return
+	}
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to retrieve user details")
+		return
+	}
+
+	otpAuthURL := fmt.Sprintf("otpauth://totp/Smartflow:%s?secret=%s&issuer=Smartflow", user.Email, secret)
+	encodedURL := url.QueryEscape(otpAuthURL)
+	qrCodeURL := fmt.Sprintf("https://chart.googleapis.com/chart?chs=200x200&chld=M|0&cht=qr&chl=%s", encodedURL)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"secret":      secret,
+		"qr_code_url": qrCodeURL,
+	})
+}
+
+type Enable2FARequest struct {
+	Code string `json:"code"`
+}
+
+func (h *Handlers) Enable2FA(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.GetUserClaims(r.Context())
+	
+	var req Enable2FARequest
+	if r.Body == nil {
+		respondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "User not found")
+		return
+	}
+
+	if user.TFASecret == nil || *user.TFASecret == "" {
+		respondError(w, http.StatusBadRequest, "2FA has not been set up yet")
+		return
+	}
+
+	if !auth.VerifyTOTP(*user.TFASecret, req.Code) {
+		respondError(w, http.StatusUnauthorized, "Invalid verification code")
+		return
+	}
+
+	err = h.repo.UpdateUser2FA(claims.UserID, *user.TFASecret, true)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to enable 2FA")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Two-factor authentication enabled successfully",
+		"enabled": true,
+	})
+}
+
+func (h *Handlers) Disable2FA(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.GetUserClaims(r.Context())
+
+	err := h.repo.UpdateUser2FA(claims.UserID, "", false)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to disable 2FA")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Two-factor authentication disabled successfully",
+		"enabled": false,
+	})
+}
+
+// GetDev2FACode handles the retrieval of current TOTP token for dev testing.
+func (h *Handlers) GetDev2FACode(w http.ResponseWriter, r *http.Request) {
+	ticket := r.URL.Query().Get("ticket")
+	if ticket == "" {
+		respondError(w, http.StatusBadRequest, "Missing ticket parameter")
+		return
+	}
+
+	claims, err := auth.ValidateJWT(ticket)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Invalid or expired ticket")
+		return
+	}
+
+	if !claims.MFAPending {
+		respondError(w, http.StatusBadRequest, "Invalid ticket state")
+		return
+	}
+
+	user, err := h.repo.GetUserByID(claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "User not found")
+		return
+	}
+
+	if !user.TFAEnabled || user.TFASecret == nil {
+		respondError(w, http.StatusBadRequest, "2FA is not enabled for this user")
+		return
+	}
+
+	code, err := auth.GenerateTOTPCode(*user.TFASecret)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Could not generate dev code")
+		return
+	}
+
+	secondsRemaining := 30 - (time.Now().Unix() % 30)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"code":              code,
+		"seconds_remaining": secondsRemaining,
+	})
 }

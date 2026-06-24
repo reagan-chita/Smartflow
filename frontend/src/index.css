@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --color-indigo-300: #8c7eff;
+  --color-indigo-400: #6a57ff;
+  --color-indigo-500: #4e3ae4;
+  --color-indigo-600: #3b25d8;
+  --color-indigo-700: #312783;
+}
+
 @layer base {
   body {
-    background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #090d16 70%);
+    background: radial-gradient(circle at 50% 0%, #312783 0%, #060913 80%);
     background-attachment: fixed;
     min-height: 100vh;
     color: #f1f5f9;

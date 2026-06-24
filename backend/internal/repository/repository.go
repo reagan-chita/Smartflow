@@ -20,13 +20,13 @@ func (r *Repository) GetUserByEmail(email string) (*models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.password_hash, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		WHERE u.email = $1`
 	var user models.User
 	err := r.db.QueryRow(query, email).Scan(
-		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -38,13 +38,13 @@ func (r *Repository) GetUserByID(id int) (*models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.password_hash, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		WHERE u.id = $1`
 	var user models.User
 	err := r.db.QueryRow(query, id).Scan(
-		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -270,7 +270,7 @@ func (r *Repository) GetAllUsers() ([]models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		ORDER BY u.id ASC`
@@ -284,7 +284,7 @@ func (r *Repository) GetAllUsers() ([]models.User, error) {
 	for rows.Next() {
 		var user models.User
 		err := rows.Scan(
-			&user.ID, &user.Name, &user.Email, &user.Role, &user.Permissions, &user.CreatedAt, &user.UpdatedAt,
+			&user.ID, &user.Name, &user.Email, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -297,6 +297,19 @@ func (r *Repository) GetAllUsers() ([]models.User, error) {
 func (r *Repository) UpdateUserRoleAndPermissions(userID int, role string, permissions string) error {
 	query := `UPDATE users SET role = $1, permissions = $2, updated_at = NOW() WHERE id = $3`
 	_, err := r.db.Exec(query, role, permissions, userID)
+	return err
+}
+
+func (r *Repository) UpdateUser2FA(userID int, secret string, enabled bool) error {
+	var query string
+	var err error
+	if secret == "" {
+		query = `UPDATE users SET tfa_secret = NULL, tfa_enabled = $1, updated_at = NOW() WHERE id = $2`
+		_, err = r.db.Exec(query, enabled, userID)
+	} else {
+		query = `UPDATE users SET tfa_secret = $1, tfa_enabled = $2, updated_at = NOW() WHERE id = $3`
+		_, err = r.db.Exec(query, secret, enabled, userID)
+	}
 	return err
 }
 
@@ -381,4 +394,64 @@ func (r *Repository) MarkAllNotificationsAsRead(userID int) error {
 	query := `UPDATE notifications SET is_read = TRUE WHERE user_id = $1`
 	_, err := r.db.Exec(query, userID)
 	return err
+}
+
+// Login Audit Log Queries
+func (r *Repository) CreateLoginAuditLog(log *models.LoginAuditLog) error {
+	query := `
+		INSERT INTO login_audit_logs (user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		RETURNING id, created_at`
+	return r.db.QueryRow(
+		query, log.UserID, log.UserName, log.UserEmail, log.UserRole, log.Activity, log.IPAddress, log.UserAgent,
+	).Scan(&log.ID, &log.CreatedAt)
+}
+
+func (r *Repository) GetAllLoginAuditLogs() ([]models.LoginAuditLog, error) {
+	query := `
+		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at
+		FROM login_audit_logs
+		ORDER BY created_at DESC
+		LIMIT 500`
+	rows, err := r.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.LoginAuditLog
+	for rows.Next() {
+		var l models.LoginAuditLog
+		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.UserAgent, &l.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func (r *Repository) GetLoginAuditLogsByUserID(userID int) ([]models.LoginAuditLog, error) {
+	query := `
+		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at
+		FROM login_audit_logs
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+		LIMIT 200`
+	rows, err := r.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.LoginAuditLog
+	for rows.Next() {
+		var l models.LoginAuditLog
+		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.UserAgent, &l.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
 }

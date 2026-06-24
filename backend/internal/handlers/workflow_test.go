@@ -467,3 +467,125 @@ func TestSuperuserAccess(t *testing.T) {
 		t.Errorf("Expected status APPROVED, got %s", appDetails.Status)
 	}
 }
+
+func Test2FAAuthenticationFlow(t *testing.T) {
+	if !dbEnabled {
+		t.Skip("Database not available, skipping test")
+	}
+	clearDB(t)
+
+	// Register a new test user to keep it simple and clean
+	hashedPassword, _ := auth.HashPassword("password123")
+	_, execErr := testRepo.GetDB().Exec(
+		`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
+		"MFA User", "mfauser@test.com", hashedPassword, models.RoleApplicant,
+	)
+	if execErr != nil {
+		t.Fatalf("Failed to seed mfa user: %v", execErr)
+	}
+
+	user, _ := testRepo.GetUserByEmail("mfauser@test.com")
+	mfaUserToken, _ := auth.GenerateJWT(user.ID, user.Email, user.Role)
+
+	// 1. Initial login - 2FA is disabled, should login directly
+	loginPayload := []byte(`{"email":"mfauser@test.com","password":"password123"}`)
+	req, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for standard login, got %d", rr.Code)
+	}
+
+	var loginResp models.LoginResponse
+	_ = json.NewDecoder(rr.Body).Decode(&loginResp)
+	if loginResp.Token == "" {
+		t.Error("Expected login token")
+	}
+
+	// 2. Setup 2FA
+	req, _ = http.NewRequest("POST", "/api/2fa/setup", nil)
+	req.Header.Set("Authorization", "Bearer "+mfaUserToken)
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for setup, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var setupResp map[string]interface{}
+	_ = json.NewDecoder(rr.Body).Decode(&setupResp)
+	secret := setupResp["secret"].(string)
+	if secret == "" {
+		t.Error("Expected secret in 2FA setup response")
+	}
+
+	// 3. Enable 2FA with valid TOTP code
+	code, err := auth.GenerateTOTPCode(secret)
+	if err != nil {
+		t.Fatalf("Failed to generate TOTP code: %v", err)
+	}
+
+	enablePayload := []byte(fmt.Sprintf(`{"code":"%s"}`, code))
+	req, _ = http.NewRequest("POST", "/api/2fa/enable", bytes.NewBuffer(enablePayload))
+	req.Header.Set("Authorization", "Bearer "+mfaUserToken)
+	req.Header.Set("Content-Type", "application/json")
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for enable, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	// 4. Log in again with password - should intercept and return mfa_required
+	req, _ = http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for intercepted login, got %d", rr.Code)
+	}
+
+	var mfaRequiredResp map[string]interface{}
+	_ = json.NewDecoder(rr.Body).Decode(&mfaRequiredResp)
+	if mfaRequiredResp["mfa_required"] != true {
+		t.Error("Expected mfa_required = true")
+	}
+	ticket := mfaRequiredResp["ticket"].(string)
+	if ticket == "" {
+		t.Error("Expected MFA pending ticket")
+	}
+
+	// 5. Retrieve dev helper code
+	req, _ = http.NewRequest("GET", "/api/2fa/dev-code?ticket="+ticket, nil)
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for dev-code, got %d", rr.Code)
+	}
+
+	var devCodeResp map[string]interface{}
+	_ = json.NewDecoder(rr.Body).Decode(&devCodeResp)
+	devCode := devCodeResp["code"].(string)
+	if devCode == "" {
+		t.Error("Expected dev helper code")
+	}
+
+	// 6. Complete login with code
+	verifyPayload := []byte(fmt.Sprintf(`{"ticket":"%s","code":"%s"}`, ticket, devCode))
+	req, _ = http.NewRequest("POST", "/api/login/mfa", bytes.NewBuffer(verifyPayload))
+	req.Header.Set("Content-Type", "application/json")
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for MFA verification, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var finalResp models.LoginResponse
+	_ = json.NewDecoder(rr.Body).Decode(&finalResp)
+	if finalResp.Token == "" {
+		t.Error("Expected session JWT in final response")
+	}
+
+	// 7. Disable 2FA
+	sessionToken := "Bearer " + finalResp.Token
+	req, _ = http.NewRequest("POST", "/api/2fa/disable", nil)
+	req.Header.Set("Authorization", sessionToken)
+	rr = executeRequest(req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for disabling 2FA, got %d", rr.Code)
+	}
+}
+

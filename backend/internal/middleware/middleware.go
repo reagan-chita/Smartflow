@@ -36,6 +36,11 @@ func Authenticate(next http.Handler) http.Handler {
 			return
 		}
 
+		if claims.MFAPending {
+			http.Error(w, `{"error":"MFA verification required"}`, http.StatusUnauthorized)
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), UserContextKey, claims)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

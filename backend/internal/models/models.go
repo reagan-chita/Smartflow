@@ -28,6 +28,8 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"`
 	Permissions  string    `json:"permissions"`
+	TFASecret    *string   `json:"tfa_secret,omitempty"`
+	TFAEnabled   bool      `json:"tfa_enabled"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -121,4 +123,19 @@ type Notification struct {
 	Message   string    `json:"message"`
 	IsRead    bool      `json:"is_read"`
 	CreatedAt time.Time `json:"created_at"`
+}
+type LoginAuditLog struct {
+	ID        int       `json:"id"`
+	UserID    int       `json:"user_id"`
+	UserName  string    `json:"user_name"`
+	UserEmail string    `json:"user_email"`
+	UserRole  string    `json:"user_role"`
+	Activity  string    `json:"activity"` // LOGIN | LOGOUT
+	IPAddress string    `json:"ip_address"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type LogoutRequest struct {
+	UserAgent string `json:"user_agent"`
 }

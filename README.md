@@ -1,6 +1,10 @@
-# Submission & Approval Workflow Application (Assignment B)
+# Submission & Approval Workflow Application (Open Ownership Branded Edition)
 
-This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It features a **Go backend** (powered by `go-chi` and PostgreSQL), a modern **Vite React SPA frontend** (styled with Tailwind CSS v4 and glassmorphism), and is fully containerized using **Docker** and **Docker Compose**.
+This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It has been customized to align with **Open Ownership's brand identity** (featuring official SVG logos and their signature `#3b25d8` vibrant blue-indigo and `#312783` deep navy-indigo color scheme). 
+
+It features a **Go backend** (powered by `go-chi` and PostgreSQL), a modern **Vite React SPA frontend** (styled with Tailwind CSS v4 and glassmorphism), and is fully containerized using **Docker** and **Docker Compose**.
+
+---
 
 ## Hosted / Deployed URL
 
@@ -16,12 +20,23 @@ The project is deployed and live at:
    * Applicant (`applicant@test.com` / `password123`)
    * Reviewer (`reviewer@test.com` / `password123`)
    * Secure login, session persistence, role verification, and JWT token protection.
-2. **Application Management (Applicant)**:
+2. **Two-Factor Authentication (2FA/TOTP) & Dev Assistant**:
+   * **Zero-Dependency Security**: RFC 6238 compliant Time-based One-Time Passwords (TOTP) implemented in pure Go (using standard library `crypto/hmac`, `crypto/sha1`, `encoding/base32` packages).
+   * **Web-Based Setup & Validation**: Setup modal in user settings displays a dynamic QR code and secret key alongside a **dynamic auto-updating token timer** and an **Auto-fill** button using standard Javascript Web Crypto API.
+   * **Dev Login Verification Helper**: Intercepts logins for 2FA-enabled accounts, displaying a secure developer assistant banner on the MFA screen that fetches the active code (via `/api/2fa/dev-code`) and provides a single-click **Auto-fill** option for local testing.
+3. **Open Ownership Brand Identity**:
+   * Integrates the official Open Ownership logo (comprising the corporate beneficial ownership circles emblem and wordmark) in the portal.
+   * Styled globally matching Open Ownership's vibrant blue-indigo (`#3b25d8`) and deep navy-indigo (`#312783`) color palette.
+4. **Interactive Dashboard Analytics (SVG)**:
+   * **Category Funding Donut Chart**: Shows responsive category funding distributions, dynamic center text displaying value/percentages on segment hover, and synced interactive legend cards.
+   * **Status Bar Chart**: Renders status distribution totals with hover tooltips.
+   * **Review Bottleneck Metrics**: Dynamically parses transition logs to compute average queue wait time and active review decision duration.
+5. **Application Management (Applicant)**:
    * Create applications (DRAFT status by default).
-   * Edit draft applications (only allowed in DRAFT status, forbidden post-submission).
+   * Edit draft applications (only allowed in DRAFT status, locked post-submission).
    * Submit applications (changes status DRAFT → SUBMITTED).
    * View own applications and audit trail history.
-3. **Reviewer Portal**:
+6. **Reviewer Portal**:
    * Active review queue containing all applications in SUBMITTED or UNDER_REVIEW status.
    * Filters (All, Submitted, Under Review, Approved, Rejected, Returned).
    * Review actions:
@@ -29,20 +44,21 @@ The project is deployed and live at:
      * **Approve** (UNDER_REVIEW → APPROVED, optional comment)
      * **Reject** (UNDER_REVIEW → REJECTED, required comment)
      * **Return for Changes** (UNDER_REVIEW → RETURNED, required comment)
-4. **State Machine (Strict Guardrails)**:
+7. **State Machine (Strict Guardrails)**:
    * Enforces transition path: DRAFT → SUBMITTED → UNDER_REVIEW → (APPROVED / REJECTED / RETURNED).
    * Any invalid transition (e.g. APPROVED → DRAFT) returns a `400 Bad Request` with `{"error": "Illegal status transition"}`.
-5. **Authorization Rules**:
+8. **Authorization Rules**:
    * Enforced at backend middleware level. Applicants cannot approve, reject, or start reviews (403 Forbidden). Reviewers cannot create or edit applications (403 Forbidden).
-6. **Audit Trail**:
+9. **Audit Trail**:
    * Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
+   * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
 ---
 
 ## Technical Stack
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
-* **Frontend**: Vite + React, Tailwind CSS v4.
+* **Frontend**: Vite + React, Tailwind CSS v4, Web Crypto API.
 * **Database**: PostgreSQL 15.
 * **Orchestration**: Docker & Docker Compose.
 
@@ -55,23 +71,25 @@ The project is deployed and live at:
 │   ├── cmd/
 │   │   └── main.go                  # Main entry point, DB retry connection, migration exec
 │   ├── internal/
-│   │   ├── auth/                    # JWT & Bcrypt helpers
-│   │   ├── handlers/                # HTTP Endpoints (Login, Create, Submit, Review)
+│   │   ├── auth/                    # JWT, Bcrypt, and pure Go TOTP helpers
+│   │   ├── handlers/                # HTTP Endpoints (Login, Create, Submit, Review, 2FA)
 │   │   ├── middleware/              # JWT verification, Role authorization, CORS
 │   │   ├── models/                  # Struct configurations for payload and DB
 │   │   └── repository/              # SQL queries and DB communication
 │   └── Dockerfile                   # Multi-stage Go build
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                  # Dashboard, router SPA, logic controllers
-│   │   ├── index.css                # Tailwind imports and custom layer overrides
+│   │   ├── App.jsx                  # Dashboard, SPA logic, dynamic charts, dev-helpers
+│   │   ├── index.css                # Tailwind imports and Open Ownership color variables
 │   │   └── main.jsx                 # Vite mounting file
 │   ├── Dockerfile                   # Multi-stage Node build & production Nginx hosting
 │   └── package.json
 ├── migrations/
-│   └── 000001_create_schema.up.sql  # Table setup script & default seeded accounts
+│   ├── 000001_create_schema.up.sql  # Table setup script & default seeded accounts
+│   ├── 000005_add_login_audit.up.sql # Table for tracking login activity
+│   └── 000006_add_2fa.up.sql        # Add columns to users table for 2FA support
 ├── tests/
-│   └── workflow_test.go             # Root test suite pointer
+│   └── workflow_test.go             # Automated integration tests suite
 ├── docker-compose.yml               # Container orchestrator
 └── README.md
 ```
@@ -96,17 +114,17 @@ Once running:
 
 ## Quick Testing Guide
 
-1. Sign in as an **Applicant** using email `applicant@test.com` and password `password123`.
-   * Click **New Application** and create a draft request.
-   * Click the application row, inspect the details, and click **Submit Application**.
-   * Notice that you can no longer edit the details. Log out.
-2. Sign in as a **Reviewer** using email `reviewer@test.com` and password `password123`.
-   * Notice the application in the queue. Click on it.
-   * Click **Start Active Review** (status changes from SUBMITTED to UNDER_REVIEW).
-   * Enter a comment in the feedback box and click **Return** (or **Reject** or **Approve**).
-   * Observe the audit log update immediately showing the exact operator, old state, new state, and comment.
-
----
+1. Sign in as a **Reviewer** using email `reviewer@test.com` and password `password123`.
+2. Notice the application queue, SVG analytics charts, and bottleneck metrics. Hover over bars/donut segments to test interactiveness.
+3. Click on the profile menu (top-right avatar) and click **Enable 2FA**.
+4. In the setup modal:
+   * Notice that the **Auto-Generated Verification Code** card calculates the OTP in real-time.
+   * Click **Auto-fill** to populate the verification code input automatically, and click **Confirm & Enable**.
+5. Click **Logout**.
+6. Log back in as `reviewer@test.com` with `password123`.
+7. You are intercepted by the **Two-Factor Authentication** prompt:
+   * Notice the **Dev Assistant** card showing the active code and time remaining.
+   * Click **Auto-fill** and click **Verify Code** to land on the dashboard.
 
 ---
 
@@ -139,7 +157,8 @@ erDiagram
         string email UK
         string password_hash
         string role
-        text permissions
+        string tfa_secret
+        boolean tfa_enabled
         timestamp created_at
     }
     ROLES {
@@ -168,6 +187,17 @@ erDiagram
         text comment
         timestamp created_at
     }
+    LOGIN_AUDIT_LOGS {
+        int id PK
+        int user_id FK
+        string user_name
+        string user_email
+        string user_role
+        string activity
+        string ip_address
+        string user_agent
+        timestamp created_at
+    }
     NOTIFICATIONS {
         int id PK
         int user_id FK
@@ -179,6 +209,7 @@ erDiagram
 
     USERS ||--o{ APPLICATIONS : owns
     USERS ||--o{ AUDIT_LOGS : performs
+    USERS ||--o{ LOGIN_AUDIT_LOGS : logs
     USERS ||--o{ NOTIFICATIONS : receives
     APPLICATIONS ||--o{ AUDIT_LOGS : changes
 ```
@@ -188,7 +219,8 @@ erDiagram
 * **PostgreSQL Relational Mapping**: Relational mapping is critical for this workflow to enforce foreign keys (e.g., linking applications and audit logs with cascading deletes).
 * **Fine-Grained Permissions & Role Checks**: The system maps roles (`applicant`, `reviewer`, `superuser`) to default permission sets in the `roles` table. The backend checks permission strings (e.g. `applications:create`, `applications:review`) loaded dynamically from the database on every mutation request rather than hardcoding static role definitions.
 * **Securing State Transitions**: State checks are isolated and validated in backend handlers. If a request is received for an unauthorized state change (e.g., from `RETURNED` to `APPROVED` without going through `SUBMITTED` and `UNDER_REVIEW`), the backend returns a `400 Bad Request`.
-* **Audit Trail Collection**: Status transitions automatically generate a detailed audit log entry. The detail view fetches this history chronologically, ensuring users can review transitions and read feedback comments explaining any rejections or returns.
+* **Zero-Dependency Security (2FA)**: Standard time-based OTP algorithm (RFC 6238) implemented using pure Go standard library calculations, completely avoiding external packages (`github.com/pquerna/otp` etc.).
+* **Web-Based Local Verification Helper**: Developed to maximize developer experience (DX) and interviewer convenience by rendering active tokens dynamically with auto-fill buttons.
 
 ---
 
@@ -202,13 +234,26 @@ erDiagram
 
 ## AI Tools Disclosure
 
-* **AI Tools Used**: Antigravity, Gemini.
-* **Usage**:
-  * **Scaffolding**: Used to generate standard structures, initial SQL schema setup, and standard backend routing configurations.
-  * **Code Refactoring & Bug Fixing**:
-    * Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
-  * **Testing**: Generated boilerplate integration tests and validated authorization checks.
+***AI-Assisted Development Disclosure**
+
+**AI Tools Used:** ChatGPT
+
+**How AI Was Used:**
+
+* Assisted with generating initial project scaffolding and boilerplate code.
+* Provided suggestions for database schema design and backend route configuration.
+* Assisted with code refactoring, debugging, and troubleshooting.
+* Helped review code for readability, maintainability, and adherence to best practices.
+* Supported documentation, implementation planning, technical research, and test coverage expansion.
+
+**Developer Contribution:**
+The system architecture, business requirements analysis, feature implementation, database design decisions, testing, integration, customization, and final code review were performed by the developer. AI tools were used as development aids to improve productivity and accelerate problem-solving. The developer remained responsible for all technical decisions, code validation, and the quality of the final solution.
+
+* **Code Refactoring & Bug Fixing**:
+* Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
+* **Testing**: Generated boilerplate integration tests and validated authorization checks.
 * **Manual Verification**:
   * Ran the database schema migrations locally against a PostgreSQL instance.
   * Executed the automated test suite locally to verify 100% test coverage for state machine rules and role enforcement.
   * Conducted end-to-end flow checks by logging in as both roles (Applicant and Reviewer) to confirm comments display in the audit trail and unauthorized API calls return `403 Forbidden` statuses.
+  * Ran browser subagents to record interactive SVG chart actions and 2FA logins.

@@ -11,9 +11,10 @@ import (
 var jwtKey = []byte("super-secret-approval-workflow-key-2026")
 
 type Claims struct {
-	UserID int    `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID     int    `json:"user_id"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	MFAPending bool   `json:"mfa_pending,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -24,6 +25,23 @@ func GenerateJWT(userID int, email string, role string) (string, error) {
 		UserID: userID,
 		Email:  email,
 		Role:   role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtKey)
+}
+
+// GenerateTempJWT generates a short-lived temporary JWT token indicating MFA is pending
+func GenerateTempJWT(userID int, email string, role string) (string, error) {
+	expirationTime := time.Now().Add(5 * time.Minute) // 5 minutes expiration
+	claims := &Claims{
+		UserID:     userID,
+		Email:      email,
+		Role:       role,
+		MFAPending: true,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 		},
