@@ -57,6 +57,27 @@ The project is deployed and live at:
 
 ---
 
+## Human-Computer Interaction (HCI) Principles Applied
+
+This system was designed with core HCI principles in mind to ensure a seamless, intuitive, and error-proof user experience:
+
+1. **Visibility of System Status**
+   * **Status Badges & Progress Rings:** Users instantly know where their application is in the pipeline (Draft, Submitted, Under Review) via clear, color-coded tags and visual SVG progress rings.
+   * **Audit Trails:** A detailed timeline of state transitions is provided for every application, ensuring total transparency of the review process.
+2. **User Control and Freedom**
+   * **Reversibility / Recovery:** Instead of a strict pass/fail system, Reviewers can choose to "Return for Changes", allowing the Applicant to fix issues and resubmit without starting over.
+   * **Dynamic Personalization:** The profile menu features a dynamic **Theme Color Picker**, giving users control over their digital environment by letting them customize the global UI aesthetic to their preference.
+3. **Error Prevention**
+   * **Strict State Machine Guardrails:** The backend strictly prevents illegal actions (e.g., approving a Draft application). The UI mirrors this by completely hiding action buttons if the application isn't in the required state, eliminating accidental clicks.
+   * **Concurrency Locks:** A strict single-device login policy tracks session versions, preventing destructive race conditions where a user might attempt conflicting updates from two different browsers simultaneously.
+4. **Consistency and Standards**
+   * **Visual Language:** The UI employs a consistent modern aesthetic. Buttons, modals, and navigation tabs adhere to established Web norms (e.g., Emerald Green for approval, Rose Red for rejection, standard top-right profile dropdown placements).
+   * **Real-World Terminology:** The system uses standard, recognizable bureaucratic language (Applicant, Reviewer, Queue, Submit, Return) to minimize cognitive load.
+5. **Aesthetic and Minimalist Design**
+   * **De-cluttered Interfaces:** The dashboard utilizes responsive CSS Grid layouts to ensure complex analytics and data are digestible without feeling crowded. Extraneous visual noise was intentionally removed to let primary tasks and metrics take focus.
+
+---
+
 ## Technical Stack
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
