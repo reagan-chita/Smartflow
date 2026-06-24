@@ -209,6 +209,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		UserRole:  user.Role,
 		Activity:  "LOGIN",
 		IPAddress: getClientIP(r),
+		Location:  auth.GetLocationFromIP(getClientIP(r)),
 		UserAgent: r.UserAgent(),
 	}
 	_ = h.repo.CreateLoginAuditLog(auditEntry)
@@ -256,6 +257,7 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 		UserRole:  user.Role,
 		Activity:  "LOGOUT",
 		IPAddress: getClientIP(r),
+		Location:  auth.GetLocationFromIP(getClientIP(r)),
 		UserAgent: uaFromBody,
 	}
 	_ = h.repo.CreateLoginAuditLog(auditEntry)
@@ -1086,6 +1088,7 @@ func (h *Handlers) LoginMFA(w http.ResponseWriter, r *http.Request) {
 		UserRole:  user.Role,
 		Activity:  "LOGIN",
 		IPAddress: getClientIP(r),
+		Location:  auth.GetLocationFromIP(getClientIP(r)),
 		UserAgent: r.UserAgent(),
 	}
 	_ = h.repo.CreateLoginAuditLog(auditEntry)

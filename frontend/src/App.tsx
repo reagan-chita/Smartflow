@@ -3783,7 +3783,8 @@ export default function App() {
               (l.user_role || '').toLowerCase().includes(q) ||
               (l.activity || '').toLowerCase().includes(q) ||
               (l.ip_address || '').toLowerCase().includes(q) ||
-              l.user_id.toString().includes(q)
+              (l.location || '').toLowerCase().includes(q) ||
+              (l.user_agent || '').toLowerCase().includes(q)
             );
           });
 
@@ -3899,6 +3900,7 @@ export default function App() {
                           <th className="px-4 py-3">Role</th>
                           <th className="px-4 py-3">Activity</th>
                           <th className="px-4 py-3">IP Address</th>
+                          <th className="px-4 py-3">Location</th>
                           <th className="px-4 py-3">Browser / OS</th>
                           <th className="px-4 py-3">Timestamp</th>
                         </tr>
@@ -3935,6 +3937,15 @@ export default function App() {
                                 )}
                               </td>
                               <td className="px-4 py-3 font-mono text-indigo-300 text-xs">{l.ip_address || '—'}</td>
+                              <td className="px-4 py-3">
+                                <div className="text-slate-300 text-[11px] font-semibold flex items-center gap-1.5">
+                                  <svg className="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.242-4.243a8 8 0 1111.314 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                  </svg>
+                                  {l.location || 'Unknown'}
+                                </div>
+                              </td>
                               <td className="px-4 py-3">
                                 <div className="text-slate-300 font-semibold">{browser}</div>
                                 <div className="text-slate-500 text-[10px]">{os}</div>

@@ -1,6 +1,6 @@
-# Submission & Approval Workflow Application (Open Ownership Branded Edition)
+# Submission & Approval Workflow Application Assignment B (Open Ownership Branded Edition)
 
-This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It has been customized to align with **Open Ownership's brand identity** (featuring official SVG logos and their signature `#3b25d8` vibrant blue-indigo and `#312783` deep navy-indigo color scheme). 
+This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It has been customized to align with **Open Ownership's brand identity** (featuring official SVG logos and their signature `#3b25d8` vibrant blue-indigo and `#312783` deep navy-indigo color scheme).
 
 It features a **Go backend** (powered by `go-chi` and PostgreSQL), a modern **Vite React SPA frontend** (styled with Tailwind CSS v4 and glassmorphism), and is fully containerized using **Docker** and **Docker Compose**.
 
@@ -27,7 +27,7 @@ The project is deployed and live at:
    * **Dev Login Verification Helper**: Intercepts logins for 2FA-enabled accounts, displaying a secure developer assistant banner on the MFA screen that fetches the active code (via `/api/2fa/dev-code`) and provides a single-click **Auto-fill** option for local testing.
 3. **Brand Identity & Dynamic Theming**:
    * Integrates the official Open Ownership logo (comprising the corporate beneficial ownership circles emblem and wordmark) in the portal.
-   * Features a **Dynamic Color Picker** located in the profile dropdown menu, allowing users to customize their entire portal aesthetic globally by selecting from a range of themes (Indigo, Emerald, Rose, Slate). 
+   * Features a **Dynamic Color Picker** located in the profile dropdown menu, allowing users to customize their entire portal aesthetic globally by selecting from a range of themes (Indigo, Emerald, Rose, Slate).
    * Leverages Tailwind v4's dynamic CSS variables to seamlessly inject themes without reloading, with preferences preserved across sessions.
 4. **Interactive Dashboard Analytics (SVG)**:
    * **Category Funding Donut Chart**: Shows responsive category funding distributions, dynamic center text displaying value/percentages on segment hover, and synced interactive legend cards.
@@ -56,8 +56,9 @@ The project is deployed and live at:
 9. **Authorization Rules**:
    * Enforced at backend middleware level. Applicants cannot approve, reject, or start reviews (403 Forbidden). Reviewers cannot create or edit applications (403 Forbidden).
 10. **Audit Trail**:
-   * Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
-   * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
+
+* Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
+* Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
 ---
 

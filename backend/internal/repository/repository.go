@@ -531,17 +531,17 @@ func (r *Repository) MarkAllNotificationsAsRead(userID int) error {
 // Login Audit Log Queries
 func (r *Repository) CreateLoginAuditLog(log *models.LoginAuditLog) error {
 	query := `
-		INSERT INTO login_audit_logs (user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		INSERT INTO login_audit_logs (user_id, user_name, user_email, user_role, activity, ip_address, location, user_agent, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
 		RETURNING id, created_at`
 	return r.db.QueryRow(
-		query, log.UserID, log.UserName, log.UserEmail, log.UserRole, log.Activity, log.IPAddress, log.UserAgent,
+		query, log.UserID, log.UserName, log.UserEmail, log.UserRole, log.Activity, log.IPAddress, log.Location, log.UserAgent,
 	).Scan(&log.ID, &log.CreatedAt)
 }
 
 func (r *Repository) GetAllLoginAuditLogs() ([]models.LoginAuditLog, error) {
 	query := `
-		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at
+		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, location, user_agent, created_at
 		FROM login_audit_logs
 		ORDER BY created_at DESC
 		LIMIT 500`
@@ -554,7 +554,7 @@ func (r *Repository) GetAllLoginAuditLogs() ([]models.LoginAuditLog, error) {
 	var logs []models.LoginAuditLog
 	for rows.Next() {
 		var l models.LoginAuditLog
-		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.UserAgent, &l.CreatedAt)
+		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.Location, &l.UserAgent, &l.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -565,7 +565,7 @@ func (r *Repository) GetAllLoginAuditLogs() ([]models.LoginAuditLog, error) {
 
 func (r *Repository) GetLoginAuditLogsByUserID(userID int) ([]models.LoginAuditLog, error) {
 	query := `
-		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, user_agent, created_at
+		SELECT id, user_id, user_name, user_email, user_role, activity, ip_address, location, user_agent, created_at
 		FROM login_audit_logs
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -579,7 +579,7 @@ func (r *Repository) GetLoginAuditLogsByUserID(userID int) ([]models.LoginAuditL
 	var logs []models.LoginAuditLog
 	for rows.Next() {
 		var l models.LoginAuditLog
-		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.UserAgent, &l.CreatedAt)
+		err := rows.Scan(&l.ID, &l.UserID, &l.UserName, &l.UserEmail, &l.UserRole, &l.Activity, &l.IPAddress, &l.Location, &l.UserAgent, &l.CreatedAt)
 		if err != nil {
 			return nil, err
 		}

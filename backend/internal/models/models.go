@@ -133,6 +133,7 @@ type LoginAuditLog struct {
 	UserRole  string    `json:"user_role"`
 	Activity  string    `json:"activity"` // LOGIN | LOGOUT
 	IPAddress string    `json:"ip_address"`
+	Location  string    `json:"location"`
 	UserAgent string    `json:"user_agent"`
 	CreatedAt time.Time `json:"created_at"`
 }

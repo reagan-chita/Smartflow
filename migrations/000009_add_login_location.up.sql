@@ -1,0 +1,1 @@
+ALTER TABLE login_audit_logs ADD COLUMN IF NOT EXISTS location VARCHAR(255) DEFAULT 'Unknown';
