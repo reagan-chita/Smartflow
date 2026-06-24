@@ -85,6 +85,9 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 * **Immunity to SQL Injection**: All database operations in `repository.go` utilize strictly parameterized queries (`$1`, `$2`) executed via PostgreSQL and Go's native `database/sql` driver. User inputs are never concatenated into raw SQL strings, ensuring malicious payloads are compiled strictly as harmless data rather than executable syntax.
 * **Automated Penetration Testing**: The codebase undergoes Static Application Security Testing (SAST) using `gosec` to formally verify the absence of string-concatenated SQL queries, weak cryptographic primitives, and hardcoded credentials.
 * **Authentication Security**: Implements HTTP-only JWT handling and `bcrypt` password hashing.
+* **Environment Configuration & Misconfiguration Avoidance**: To ensure safe deployments to cloud providers like Render, hardcoded secrets and wildcard CORS vulnerabilities were explicitly eliminated from the codebase.
+  * **JWT Secret Management**: The backend dynamically loads the cryptographic session signing key via the `JWT_SECRET` environment variable, preventing repository leakage.
+  * **Strict CORS Whitelisting**: Instead of blindly allowing wildcard (`*`) access, cross-origin API requests are strictly validated against a whitelist configured via the `ALLOWED_ORIGINS` environment variable (explicitly allowing domains like `https://smartflow-frontend-djlc.onrender.com`).
 * **State Machine Guardrails**: The API structurally rejects illegal workflow state transitions (e.g., trying to modify an `APPROVED` application).
 
 ---
