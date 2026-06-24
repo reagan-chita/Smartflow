@@ -78,6 +78,17 @@ This system was designed with core HCI principles in mind to ensure a seamless, 
 
 ---
 
+## Security Architecture & Penetration Testing
+
+The backend is hardened against standard web vulnerabilities, particularly **SQL Injection (SQLi)**.
+
+* **Immunity to SQL Injection**: All database operations in `repository.go` utilize strictly parameterized queries (`$1`, `$2`) executed via PostgreSQL and Go's native `database/sql` driver. User inputs are never concatenated into raw SQL strings, ensuring malicious payloads are compiled strictly as harmless data rather than executable syntax.
+* **Automated Penetration Testing**: The codebase undergoes Static Application Security Testing (SAST) using `gosec` to formally verify the absence of string-concatenated SQL queries, weak cryptographic primitives, and hardcoded credentials.
+* **Authentication Security**: Implements HTTP-only JWT handling and `bcrypt` password hashing.
+* **State Machine Guardrails**: The API structurally rejects illegal workflow state transitions (e.g., trying to modify an `APPROVED` application).
+
+---
+
 ## Technical Stack
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
