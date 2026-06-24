@@ -590,3 +590,49 @@ func Test2FAAuthenticationFlow(t *testing.T) {
 	}
 }
 
+func TestConcurrentLoginInvalidation(t *testing.T) {
+	if !dbEnabled {
+		t.Skip("Database not available, skipping test")
+	}
+	clearDB(t)
+
+	loginPayload := []byte(`{"email":"applicant@test.com","password":"password123"}`)
+	
+	// First login
+	req1, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginPayload))
+	req1.Header.Set("Content-Type", "application/json")
+	rr1 := executeRequest(req1)
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for first login, got %d", rr1.Code)
+	}
+	var resp1 models.LoginResponse
+	json.NewDecoder(rr1.Body).Decode(&resp1)
+	token1 := resp1.Token
+
+	// Second login (from "another browser")
+	req2, _ := http.NewRequest("POST", "/api/login", bytes.NewBuffer(loginPayload))
+	req2.Header.Set("Content-Type", "application/json")
+	rr2 := executeRequest(req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 OK for second login, got %d", rr2.Code)
+	}
+	var resp2 models.LoginResponse
+	json.NewDecoder(rr2.Body).Decode(&resp2)
+	token2 := resp2.Token
+
+	// Try to use token1 (should be invalidated)
+	req3, _ := http.NewRequest("GET", "/api/applications", nil)
+	req3.Header.Set("Authorization", "Bearer "+token1)
+	rr3 := executeRequest(req3)
+	if rr3.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 Unauthorized for invalidated token, got %d", rr3.Code)
+	}
+
+	// Try to use token2 (should succeed)
+	req4, _ := http.NewRequest("GET", "/api/applications", nil)
+	req4.Header.Set("Authorization", "Bearer "+token2)
+	rr4 := executeRequest(req4)
+	if rr4.Code != http.StatusOK {
+		t.Errorf("Expected status 200 OK for valid token, got %d", rr4.Code)
+	}
+}

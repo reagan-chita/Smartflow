@@ -20,6 +20,7 @@ The project is deployed and live at:
    * Applicant (`applicant@test.com` / `password123`)
    * Reviewer (`reviewer@test.com` / `password123`)
    * Secure login, session persistence, role verification, and JWT token protection.
+   * **Strict Single-Device Concurrency Lock**: Tracks active session version in the database. Logging into a new browser automatically drops the active session of any previously logged-in browsers for the same user.
 2. **Two-Factor Authentication (2FA/TOTP) & Dev Assistant**:
    * **Zero-Dependency Security**: RFC 6238 compliant Time-based One-Time Passwords (TOTP) implemented in pure Go (using standard library `crypto/hmac`, `crypto/sha1`, `encoding/base32` packages).
    * **Web-Based Setup & Validation**: Setup modal in user settings displays a dynamic QR code and secret key alongside a **dynamic auto-updating token timer** and an **Auto-fill** button using standard Javascript Web Crypto API.
