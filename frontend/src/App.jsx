@@ -104,6 +104,45 @@ const formatRelativeTime = (dateStr) => {
   }
 };
 
+const THEMES = {
+  indigo: {
+    'theme-300': '#8c7eff',
+    'theme-400': '#6a57ff',
+    'theme-500': '#4e3ae4',
+    'theme-600': '#3b25d8',
+    'theme-700': '#312783',
+    'theme-bg-start': '#312783',
+    'theme-bg-end': '#060913',
+  },
+  emerald: {
+    'theme-300': '#6ee7b7',
+    'theme-400': '#34d399',
+    'theme-500': '#10b981',
+    'theme-600': '#059669',
+    'theme-700': '#047857',
+    'theme-bg-start': '#047857',
+    'theme-bg-end': '#022c22',
+  },
+  rose: {
+    'theme-300': '#fda4af',
+    'theme-400': '#fb7185',
+    'theme-500': '#f43f5e',
+    'theme-600': '#e11d48',
+    'theme-700': '#be123c',
+    'theme-bg-start': '#be123c',
+    'theme-bg-end': '#4c0519',
+  },
+  slate: {
+    'theme-300': '#cbd5e1',
+    'theme-400': '#94a3b8',
+    'theme-500': '#64748b',
+    'theme-600': '#475569',
+    'theme-700': '#334155',
+    'theme-bg-start': '#334155',
+    'theme-bg-end': '#0f172a',
+  }
+};
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')) || null);
@@ -203,6 +242,20 @@ export default function App() {
 
   // Profile Dropdown state
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+
+  // Theme state
+  const [themeColor, setThemeColor] = useState(() => {
+    return localStorage.getItem('smartflow_theme') || 'indigo';
+  });
+
+  useEffect(() => {
+    const theme = THEMES[themeColor] || THEMES['indigo'];
+    const root = document.documentElement;
+    Object.keys(theme).forEach(key => {
+      root.style.setProperty(`--${key}`, theme[key]);
+    });
+    localStorage.setItem('smartflow_theme', themeColor);
+  }, [themeColor]);
 
   // Welcome Message states
   const [showWelcome, setShowWelcome] = useState(false);
@@ -1916,6 +1969,25 @@ export default function App() {
                           <span className="text-[9px] text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 uppercase font-mono font-bold">
                             {user.role}
                           </span>
+                        </div>
+                      </div>
+                      <div className="py-1 border-b border-white/5 space-y-1">
+                        <div className="p-2">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Theme Color</div>
+                          <div className="flex items-center gap-3">
+                            {Object.keys(THEMES).map(themeName => (
+                              <button
+                                key={themeName}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setThemeColor(themeName);
+                                }}
+                                className={`w-5 h-5 rounded-full border-2 transition-transform cursor-pointer ${themeColor === themeName ? 'scale-125 border-white shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent hover:scale-110 shadow-md'}`}
+                                style={{ backgroundColor: THEMES[themeName]['theme-500'] }}
+                                title={`Theme: ${themeName}`}
+                              />
+                            ))}
+                          </div>
                         </div>
                       </div>
                       <div className="py-1 border-b border-white/5 space-y-1">
