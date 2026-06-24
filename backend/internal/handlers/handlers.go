@@ -45,7 +45,7 @@ func (h *Handlers) RegisterRoutes(r chi.Router) {
 
 	// Authenticated routes
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Authenticate)
+		r.Use(middleware.Authenticate(h.repo))
 
 		// 2FA Management
 		r.Post("/api/2fa/setup", h.Setup2FA)
@@ -177,7 +177,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if user.TFAEnabled {
-		tempToken, err := auth.GenerateTempJWT(user.ID, user.Email, user.Role)
+		newVersion, _ := h.repo.IncrementSessionVersion(user.ID)
+		tempToken, err := auth.GenerateTempJWT(user.ID, user.Email, user.Role, newVersion)
 		if err != nil {
 			respondError(w, http.StatusInternalServerError, "Could not generate temporary token")
 			return
@@ -190,7 +191,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role)
+	newVersion, _ := h.repo.IncrementSessionVersion(user.ID)
+	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role, newVersion)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Could not generate token")
 		return
@@ -1062,7 +1064,8 @@ func (h *Handlers) LoginMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role)
+	newVersion, _ := h.repo.IncrementSessionVersion(user.ID)
+	token, err := auth.GenerateJWT(user.ID, user.Email, user.Role, newVersion)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Could not generate token")
 		return

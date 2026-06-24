@@ -6,7 +6,7 @@ services:
     container_name: workflow_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: chita@1992
       POSTGRES_DB: workflow_db
     ports:
       - "5432:5432"
@@ -29,7 +29,7 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=postgres
+      - DB_PASSWORD=chita@1992
       - DB_NAME=workflow_db
       - DB_SSLMODE=disable
       - PORT=8080

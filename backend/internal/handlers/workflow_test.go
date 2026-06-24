@@ -101,13 +101,13 @@ func TestMain(m *testing.M) {
 	appUser, err := testRepo.GetUserByEmail("applicant@test.com")
 	if err == nil {
 		appUserID = appUser.ID
-		appToken, _ = auth.GenerateJWT(appUserID, appUser.Email, appUser.Role)
+		appToken, _ = auth.GenerateJWT(appUserID, appUser.Email, appUser.Role, 0)
 	}
 
 	revUser, err := testRepo.GetUserByEmail("reviewer@test.com")
 	if err == nil {
 		revUserID = revUser.ID
-		revToken, _ = auth.GenerateJWT(revUserID, revUser.Email, revUser.Role)
+		revToken, _ = auth.GenerateJWT(revUserID, revUser.Email, revUser.Role, 0)
 	}
 
 	// Run tests
@@ -421,7 +421,7 @@ func TestSuperuserAccess(t *testing.T) {
 		superUser, _ = testRepo.GetUserByEmail("superuser@test.com")
 	}
 	superUserID = superUser.ID
-	superToken, _ = auth.GenerateJWT(superUserID, superUser.Email, superUser.Role)
+	superToken, _ = auth.GenerateJWT(superUserID, superUser.Email, superUser.Role, 0)
 
 	// 1. Superuser acts as Applicant (Creates application)
 	createPayload := []byte(`{"title":"Super App","category":"IT","description":"Super description","amount":5000.00}`)
@@ -475,17 +475,18 @@ func Test2FAAuthenticationFlow(t *testing.T) {
 	clearDB(t)
 
 	// Register a new test user to keep it simple and clean
+	// Seed a user specifically for MFA tests
+	testRepo.GetDB().Exec("DELETE FROM users WHERE email = 'mfauser@test.com'")
 	hashedPassword, _ := auth.HashPassword("password123")
-	_, execErr := testRepo.GetDB().Exec(
-		`INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
-		"MFA User", "mfauser@test.com", hashedPassword, models.RoleApplicant,
-	)
+	_, execErr := testRepo.GetDB().Exec(`
+		INSERT INTO users (name, email, password_hash, role, permissions, tfa_enabled, session_version) 
+		VALUES ($1, $2, $3, $4, $5, $6, 0)
+	`, "MFA User", "mfauser@test.com", hashedPassword, models.RoleReviewer, "applications:review", false)
 	if execErr != nil {
 		t.Fatalf("Failed to seed mfa user: %v", execErr)
 	}
 
-	user, _ := testRepo.GetUserByEmail("mfauser@test.com")
-	mfaUserToken, _ := auth.GenerateJWT(user.ID, user.Email, user.Role)
+	// mfaUserToken is no longer generated here as we will use loginResp.Token
 
 	// 1. Initial login - 2FA is disabled, should login directly
 	loginPayload := []byte(`{"email":"mfauser@test.com","password":"password123"}`)
@@ -504,7 +505,7 @@ func Test2FAAuthenticationFlow(t *testing.T) {
 
 	// 2. Setup 2FA
 	req, _ = http.NewRequest("POST", "/api/2fa/setup", nil)
-	req.Header.Set("Authorization", "Bearer "+mfaUserToken)
+	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	rr = executeRequest(req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("Expected status 200 OK for setup, got %d. Body: %s", rr.Code, rr.Body.String())
@@ -525,7 +526,7 @@ func Test2FAAuthenticationFlow(t *testing.T) {
 
 	enablePayload := []byte(fmt.Sprintf(`{"code":"%s"}`, code))
 	req, _ = http.NewRequest("POST", "/api/2fa/enable", bytes.NewBuffer(enablePayload))
-	req.Header.Set("Authorization", "Bearer "+mfaUserToken)
+	req.Header.Set("Authorization", "Bearer "+loginResp.Token)
 	req.Header.Set("Content-Type", "application/json")
 	rr = executeRequest(req)
 	if rr.Code != http.StatusOK {

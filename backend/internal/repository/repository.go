@@ -20,13 +20,13 @@ func (r *Repository) GetUserByEmail(email string) (*models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.password_hash, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.session_version, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		WHERE u.email = $1`
 	var user models.User
 	err := r.db.QueryRow(query, email).Scan(
-		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.SessionVersion, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -38,13 +38,13 @@ func (r *Repository) GetUserByID(id int) (*models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.password_hash, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.session_version, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		WHERE u.id = $1`
 	var user models.User
 	err := r.db.QueryRow(query, id).Scan(
-		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID, &user.Name, &user.Email, &user.PasswordHash, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.SessionVersion, &user.CreatedAt, &user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -262,7 +262,7 @@ func (r *Repository) GetDB() *sql.DB {
 
 // CleanDatabase deletes all non-user data (useful for test isolation)
 func (r *Repository) CleanDatabase() error {
-	_, err := r.db.Exec("TRUNCATE audit_logs, applications RESTART IDENTITY CASCADE")
+	_, err := r.db.Exec("TRUNCATE audit_logs, applications, login_audit_logs RESTART IDENTITY CASCADE; UPDATE users SET session_version = 0;")
 	return err
 }
 
@@ -270,7 +270,7 @@ func (r *Repository) GetAllUsers() ([]models.User, error) {
 	query := `
 		SELECT u.id, u.name, u.email, u.role, 
 		       COALESCE(NULLIF(u.permissions, ''), r.permissions, '') as permissions, 
-		       u.tfa_secret, u.tfa_enabled, u.created_at, u.updated_at 
+		       u.tfa_secret, u.tfa_enabled, u.session_version, u.created_at, u.updated_at 
 		FROM users u
 		LEFT JOIN roles r ON u.role = r.name
 		ORDER BY u.id ASC`
@@ -284,7 +284,7 @@ func (r *Repository) GetAllUsers() ([]models.User, error) {
 	for rows.Next() {
 		var user models.User
 		err := rows.Scan(
-			&user.ID, &user.Name, &user.Email, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.CreatedAt, &user.UpdatedAt,
+			&user.ID, &user.Name, &user.Email, &user.Role, &user.Permissions, &user.TFASecret, &user.TFAEnabled, &user.SessionVersion, &user.CreatedAt, &user.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -315,11 +315,22 @@ func (r *Repository) UpdateUser2FA(userID int, secret string, enabled bool) erro
 
 func (r *Repository) CreateUser(user *models.User) error {
 	query := `
-		INSERT INTO users (name, email, password_hash, role, permissions, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO users (name, email, password_hash, role, permissions, session_version, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 0, NOW(), NOW())
 		RETURNING id, created_at, updated_at`
 	return r.db.QueryRow(query, user.Name, user.Email, user.PasswordHash, user.Role, user.Permissions).
 		Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+}
+
+func (r *Repository) IncrementSessionVersion(userID int) (int, error) {
+	var newVersion int
+	query := `
+		UPDATE users 
+		SET session_version = session_version + 1, updated_at = NOW() 
+		WHERE id = $1 
+		RETURNING session_version`
+	err := r.db.QueryRow(query, userID).Scan(&newVersion)
+	return newVersion, err
 }
 
 func (r *Repository) CreateRole(role *models.Role) error {

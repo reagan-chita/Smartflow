@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/reaganchita/approval-workflow/backend/internal/auth"
+	"github.com/reaganchita/approval-workflow/backend/internal/repository"
 )
 
 type contextKey string
@@ -15,35 +16,44 @@ const (
 )
 
 // Authenticate extracts and validates JWT from the Authorization header
-func Authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, `{"error":"Missing Authorization header"}`, http.StatusUnauthorized)
-			return
-		}
+func Authenticate(repo *repository.Repository) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, `{"error":"Missing Authorization header"}`, http.StatusUnauthorized)
+				return
+			}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			http.Error(w, `{"error":"Invalid Authorization header format"}`, http.StatusUnauthorized)
-			return
-		}
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+				http.Error(w, `{"error":"Invalid Authorization header format"}`, http.StatusUnauthorized)
+				return
+			}
 
-		tokenStr := parts[1]
-		claims, err := auth.ValidateJWT(tokenStr)
-		if err != nil {
-			http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
-			return
-		}
+			tokenStr := parts[1]
+			claims, err := auth.ValidateJWT(tokenStr)
+			if err != nil {
+				http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)
+				return
+			}
 
-		if claims.MFAPending {
-			http.Error(w, `{"error":"MFA verification required"}`, http.StatusUnauthorized)
-			return
-		}
+			if claims.MFAPending {
+				http.Error(w, `{"error":"MFA verification required"}`, http.StatusUnauthorized)
+				return
+			}
 
-		ctx := context.WithValue(r.Context(), UserContextKey, claims)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+			// Validate session version
+			user, err := repo.GetUserByID(claims.UserID)
+			if err != nil || user.SessionVersion != claims.SessionVersion {
+				http.Error(w, `{"error":"Session expired or logged in from another device"}`, http.StatusUnauthorized)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), UserContextKey, claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // RequireRole restricts access to users with the specified role(s)

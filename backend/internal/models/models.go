@@ -29,9 +29,10 @@ type User struct {
 	Role         string    `json:"role"`
 	Permissions  string    `json:"permissions"`
 	TFASecret    *string   `json:"tfa_secret,omitempty"`
-	TFAEnabled   bool      `json:"tfa_enabled"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	TFAEnabled     bool      `json:"tfa_enabled"`
+	SessionVersion int       `json:"session_version"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type Application struct {

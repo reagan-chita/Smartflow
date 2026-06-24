@@ -126,8 +126,14 @@ export default function App() {
     });
 
     if (res.status === 401 && !isLogin) {
+      let msg = 'You must log in';
+      try {
+        const cloned = res.clone();
+        const data = await cloned.json();
+        if (data.error) msg = data.error;
+      } catch (e) {}
       handleLogout();
-      setErrorMsg('You must log in');
+      setErrorMsg(msg);
       throw new Error('Unauthorized');
     }
 
@@ -1710,13 +1716,16 @@ export default function App() {
               <div className="flex flex-wrap items-center justify-center gap-2">
                 {hasPermission('applications:create') && (
                   <div
-                    onClick={handleNewAppClick}
+                    onClick={() => {
+                      setSelectedApp(null);
+                      setCurrentView('applications');
+                    }}
                     className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-1.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-1.5 cursor-pointer animate-fade-in"
                   >
-                    <svg className="w-3.5 h-3.5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+                    <svg className="w-3.5 h-3.5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
                     </svg>
-                    New Application
+                    Applications
                   </div>
                 )}
                 {hasPermission('applications:review') && (
@@ -2053,9 +2062,9 @@ export default function App() {
 
         {/* View 2: Dashboards */}
         {currentView === 'dashboard' && user && (
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 items-start animate-fade-in">
-            {/* Left side: Main Dashboards (Applicant / Reviewer) */}
-            <div className="xl:col-span-3 space-y-8">
+          <div className="flex flex-col gap-8 animate-fade-in">
+            {/* Main Dashboards (Applicant / Reviewer) */}
+            <div className="w-full space-y-8">
 
             {/* 1. APPLICANT DASHBOARD LAYOUT */}
             {hasPermission('applications:create') && (
@@ -2065,7 +2074,7 @@ export default function App() {
                 )}
 
                 {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-7 gap-4">
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Total Applications</div>
@@ -2145,7 +2154,7 @@ export default function App() {
                 )}
 
                 {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6 gap-4">
                   <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Queue Total</div>
@@ -2270,65 +2279,7 @@ export default function App() {
             )}
             </div>
 
-            {/* Right Column: Activity Timeline Sidebar */}
-            <div className="xl:col-span-1 bg-slate-950/30 border border-white/5 rounded-2xl p-5 shadow-xl sticky top-8 space-y-4">
-              <div className="border-b border-white/5 pb-3">
-                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Recent Activity</h3>
-                <p className="text-[10px] text-slate-500 font-medium mt-0.5">Real-time workflow transitions feed</p>
-              </div>
-              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
-                {auditLogsList && auditLogsList.length > 0 ? (
-                  auditLogsList.slice(0, 10).map((log, idx) => {
-                    const statusInfo = getStatusColorInfo(log.new_status);
-                    return (
-                      <div key={log.id} className="relative pl-6 pb-4 last:pb-0 text-xs">
-                        {/* Vertical line connecting nodes */}
-                        {idx !== auditLogsList.slice(0, 10).length - 1 && (
-                          <div className="absolute left-[5px] top-4 bottom-0 w-[1px] bg-white/5" />
-                        )}
-                        {/* Node circle */}
-                        <div className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full ${idx === 0 ? 'bg-emerald-500 animate-pulse-glow' : 'bg-slate-700'}`} style={{
-                          boxShadow: idx === 0 ? '0 0 10px rgba(52, 211, 153, 0.8)' : 'none'
-                        }} />
-                        <div className="space-y-1">
-                          <div className="flex justify-between items-start gap-2">
-                            <span className="text-[11px] font-bold text-slate-200 truncate max-w-[120px]" title={log.application_title || `App #${log.application_id}`}>
-                              {log.application_title || `App #${log.application_id}`}
-                            </span>
-                            <span className="text-[9px] font-mono text-slate-500 whitespace-nowrap">
-                              {formatRelativeTime(log.created_at)}
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="font-semibold text-slate-300">{log.user_name || 'System'}</span> transitioned state
-                          </div>
-                          <div className="flex items-center gap-1.5 pt-0.5">
-                            {log.old_status ? (
-                              <span className="text-slate-500 text-[9px] line-through font-mono">{log.old_status}</span>
-                            ) : (
-                              <span className="text-slate-600 text-[8px] italic font-mono">(NEW)</span>
-                            )}
-                            <span className="text-slate-500 text-[9px] font-bold">&rarr;</span>
-                            <span className={`text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.2 rounded border ${statusInfo.textClass} ${statusInfo.bgClass}`}>
-                              {log.new_status || 'CREATED'}
-                            </span>
-                          </div>
-                          {log.comment && (
-                            <p className="text-[10px] text-slate-400 font-medium italic bg-white/2 rounded p-1 border border-white/5 mt-1">
-                              "{log.comment}"
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-center py-8 text-xs text-slate-500">
-                    No recent activity transitions.
-                  </div>
-                )}
-              </div>
-            </div>
+            {/* Recent Activity Sidebar removed as requested */}
 
           </div>
         )}
