@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL 
@@ -84,6 +84,25 @@ const generateTOTP = async (secret, timeStep = 30) => {
   }
 };
 
+const formatRelativeTime = (dateStr) => {
+  try {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    if (isNaN(diffMs)) return '';
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch (e) {
+    return '';
+  }
+};
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
@@ -147,6 +166,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState('created_at');
   const [sortOrder, setSortOrder] = useState('desc');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [exportState, setExportState] = useState('idle');
 
   // User Management state
   const [usersList, setUsersList] = useState([]);
@@ -289,27 +310,46 @@ export default function App() {
   });
 
   const handleExportCSV = () => {
-    const headers = ['Log ID', 'Application Title', 'Application ID', 'Operator Name', 'Operator ID', 'Old Status', 'New Status', 'Comment', 'Timestamp'];
-    const rows = filteredAuditLogs.map(log => [
-      log.id,
-      log.application_title || '',
-      log.application_id,
-      log.user_name || '',
-      log.user_id,
-      log.old_status || '',
-      log.new_status || '',
-      log.comment || '',
-      new Date(log.created_at).toLocaleString()
-    ]);
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-      + [headers.join(','), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `audit_log_report_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setExportState('gathering');
+    setTimeout(() => {
+      setExportState('formatting');
+      setTimeout(() => {
+        setExportState('downloading');
+        
+        try {
+          const headers = ['Log ID', 'Application Title', 'Application ID', 'Operator Name', 'Operator ID', 'Old Status', 'New Status', 'Comment', 'Timestamp'];
+          const rows = filteredAuditLogs.map(log => [
+            log.id,
+            log.application_title || '',
+            log.application_id,
+            log.user_name || '',
+            log.user_id,
+            log.old_status || '',
+            log.new_status || '',
+            log.comment || '',
+            new Date(log.created_at).toLocaleString()
+          ]);
+          const csvContent = "data:text/csv;charset=utf-8,\uFEFF"
+            + [headers.join(','), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))].join('\n');
+          const encodedUri = encodeURI(csvContent);
+          const link = document.createElement("a");
+          link.setAttribute("href", encodedUri);
+          link.setAttribute("download", `audit_log_report_${Date.now()}.csv`);
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        } catch (e) {
+          console.error('CSV Export error:', e);
+        }
+
+        setTimeout(() => {
+          setExportState('success');
+          setTimeout(() => {
+            setExportState('idle');
+          }, 2000);
+        }, 1000);
+      }, 1000);
+    }, 1000);
   };
 
   const handleExportPDF = () => {
@@ -514,7 +554,7 @@ export default function App() {
 
   // Fetch audit logs when view changes
   useEffect(() => {
-    if (currentView === 'audit-logs' || (currentView === 'dashboard' && hasPermission('applications:review'))) {
+    if (currentView === 'audit-logs' || currentView === 'dashboard') {
       Promise.resolve().then(() => fetchAuditLogsList());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -837,6 +877,9 @@ export default function App() {
   const getProcessedApps = (apps) => {
     return apps
       .filter(app => {
+        if (categoryFilter && app.category !== categoryFilter) {
+          return false;
+        }
         const query = searchQuery.toLowerCase();
         return (
           app.title.toLowerCase().includes(query) ||
@@ -977,9 +1020,28 @@ export default function App() {
 
       const data = await res.json();
       setApplications(data);
+      if (token && user) {
+        fetchAuditLogsList();
+      }
     } catch (err) {
       setErrorMsg(err.message);
     }
+  };
+
+  const handleSelectCategory = (cat) => {
+    if (categoryFilter === cat) {
+      setCategoryFilter('');
+    } else {
+      setCategoryFilter(cat);
+    }
+  };
+
+  const handleCardMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty('--mouse-x', `${x}px`);
+    e.currentTarget.style.setProperty('--mouse-y', `${y}px`);
   };
 
   // Initial routing / load data when logged in
@@ -1901,6 +1963,7 @@ export default function App() {
                 }}
               />
               <div className="absolute inset-0 bg-gradient-to-b from-[#312783]/20 via-[#060913]/90 to-[#060913]" />
+              <ParticleBackground />
             </div>
 
             <div className="min-h-[80vh] flex items-center justify-center animate-fade-in relative z-10">
@@ -1990,7 +2053,9 @@ export default function App() {
 
         {/* View 2: Dashboards */}
         {currentView === 'dashboard' && user && (
-          <div className="space-y-8 animate-fade-in">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 items-start animate-fade-in">
+            {/* Left side: Main Dashboards (Applicant / Reviewer) */}
+            <div className="xl:col-span-3 space-y-8">
 
             {/* 1. APPLICANT DASHBOARD LAYOUT */}
             {hasPermission('applications:create') && (
@@ -2001,49 +2066,49 @@ export default function App() {
 
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Total Applications</div>
                       <div className="text-2xl font-black text-white mt-1">{ownApps.length}</div>
                     </div>
                     {renderProgressCircle(ownApps.length, ownApps.length, 'stroke-indigo-500')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">DRAFT</div>
                       <div className="text-2xl font-black text-slate-400 mt-1">{getStatusCount('DRAFT', ownApps)}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('DRAFT', ownApps), ownApps.length, 'stroke-slate-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">SUBMITTED</div>
                       <div className="text-2xl font-black text-blue-400 mt-1">{getStatusCount('SUBMITTED', ownApps)}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('SUBMITTED', ownApps), ownApps.length, 'stroke-blue-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">UNDER REVIEW</div>
                       <div className="text-2xl font-black text-orange-400 mt-1">{getStatusCount('UNDER_REVIEW', ownApps)}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('UNDER_REVIEW', ownApps), ownApps.length, 'stroke-orange-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">APPROVED</div>
                       <div className="text-2xl font-black text-emerald-400 mt-1">{getStatusCount('APPROVED', ownApps)}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('APPROVED', ownApps), ownApps.length, 'stroke-emerald-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">REJECTED</div>
                       <div className="text-2xl font-black text-rose-400 mt-1">{getStatusCount('REJECTED', ownApps)}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('REJECTED', ownApps), ownApps.length, 'stroke-rose-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">RETURNED</div>
                       <div className="text-2xl font-black text-purple-400 mt-1">{getStatusCount('RETURNED', ownApps)}</div>
@@ -2064,7 +2129,7 @@ export default function App() {
                   {/* Amount Breakdown chart */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding requested by Category</h3>
-                    <InteractiveDonutChart data={getBudgetByCategoryData(ownApps)} title="Funding" />
+                    <InteractiveDonutChart data={getBudgetByCategoryData(ownApps)} title="Funding" onSelectCategory={handleSelectCategory} selectedCategory={categoryFilter} />
                   </div>
 
                 </div>
@@ -2081,42 +2146,42 @@ export default function App() {
 
                 {/* Summary Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Queue Total</div>
                       <div className="text-2xl font-black text-white mt-1">{applications.length}</div>
                     </div>
                     {renderProgressCircle(applications.length, applications.length, 'stroke-indigo-500')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">SUBMITTED</div>
                       <div className="text-2xl font-black text-blue-400 mt-1">{getStatusCount('SUBMITTED')}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('SUBMITTED'), applications.length, 'stroke-blue-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">UNDER REVIEW</div>
                       <div className="text-2xl font-black text-orange-400 mt-1">{getStatusCount('UNDER_REVIEW')}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('UNDER_REVIEW'), applications.length, 'stroke-orange-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">APPROVED</div>
                       <div className="text-2xl font-black text-emerald-400 mt-1">{getStatusCount('APPROVED')}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('APPROVED'), applications.length, 'stroke-emerald-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">REJECTED</div>
                       <div className="text-2xl font-black text-rose-400 mt-1">{getStatusCount('REJECTED')}</div>
                     </div>
                     {renderProgressCircle(getStatusCount('REJECTED'), applications.length, 'stroke-rose-400')}
                   </div>
-                  <div className="glass-panel rounded-xl p-4 flex items-center justify-between gap-4">
+                  <div className="glass-panel spotlight-card rounded-xl p-4 flex items-center justify-between gap-4" onMouseMove={handleCardMouseMove}>
                     <div>
                       <div className="text-slate-500 text-[10px] font-bold uppercase tracking-wider font-mono">RETURNED</div>
                       <div className="text-2xl font-black text-purple-400 mt-1">{getStatusCount('RETURNED')}</div>
@@ -2137,7 +2202,7 @@ export default function App() {
                   {/* Amount Breakdown chart */}
                   <div className="glass-panel rounded-xl p-5 space-y-4">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/5 pb-2">Funding request by Category</h3>
-                    <InteractiveDonutChart data={getBudgetByCategoryData(applications)} title="Funding" />
+                    <InteractiveDonutChart data={getBudgetByCategoryData(applications)} title="Funding" onSelectCategory={handleSelectCategory} selectedCategory={categoryFilter} />
                   </div>
 
                   {/* Bottlenecks Timeline */}
@@ -2203,6 +2268,67 @@ export default function App() {
 
               </div>
             )}
+            </div>
+
+            {/* Right Column: Activity Timeline Sidebar */}
+            <div className="xl:col-span-1 bg-slate-950/30 border border-white/5 rounded-2xl p-5 shadow-xl sticky top-8 space-y-4">
+              <div className="border-b border-white/5 pb-3">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-widest">Recent Activity</h3>
+                <p className="text-[10px] text-slate-500 font-medium mt-0.5">Real-time workflow transitions feed</p>
+              </div>
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+                {auditLogsList && auditLogsList.length > 0 ? (
+                  auditLogsList.slice(0, 10).map((log, idx) => {
+                    const statusInfo = getStatusColorInfo(log.new_status);
+                    return (
+                      <div key={log.id} className="relative pl-6 pb-4 last:pb-0 text-xs">
+                        {/* Vertical line connecting nodes */}
+                        {idx !== auditLogsList.slice(0, 10).length - 1 && (
+                          <div className="absolute left-[5px] top-4 bottom-0 w-[1px] bg-white/5" />
+                        )}
+                        {/* Node circle */}
+                        <div className={`absolute left-0 top-1.5 w-2.5 h-2.5 rounded-full ${idx === 0 ? 'bg-emerald-500 animate-pulse-glow' : 'bg-slate-700'}`} style={{
+                          boxShadow: idx === 0 ? '0 0 10px rgba(52, 211, 153, 0.8)' : 'none'
+                        }} />
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="text-[11px] font-bold text-slate-200 truncate max-w-[120px]" title={log.application_title || `App #${log.application_id}`}>
+                              {log.application_title || `App #${log.application_id}`}
+                            </span>
+                            <span className="text-[9px] font-mono text-slate-500 whitespace-nowrap">
+                              {formatRelativeTime(log.created_at)}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="font-semibold text-slate-300">{log.user_name || 'System'}</span> transitioned state
+                          </div>
+                          <div className="flex items-center gap-1.5 pt-0.5">
+                            {log.old_status ? (
+                              <span className="text-slate-500 text-[9px] line-through font-mono">{log.old_status}</span>
+                            ) : (
+                              <span className="text-slate-600 text-[8px] italic font-mono">(NEW)</span>
+                            )}
+                            <span className="text-slate-500 text-[9px] font-bold">&rarr;</span>
+                            <span className={`text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.2 rounded border ${statusInfo.textClass} ${statusInfo.bgClass}`}>
+                              {log.new_status || 'CREATED'}
+                            </span>
+                          </div>
+                          {log.comment && (
+                            <p className="text-[10px] text-slate-400 font-medium italic bg-white/2 rounded p-1 border border-white/5 mt-1">
+                              "{log.comment}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="text-center py-8 text-xs text-slate-500">
+                    No recent activity transitions.
+                  </div>
+                )}
+              </div>
+            </div>
 
           </div>
         )}
@@ -2245,28 +2371,43 @@ export default function App() {
 
             {/* Search Controls */}
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-slate-950/20 p-4 rounded-xl border border-white/5 shadow-md">
-              <div className="relative w-full md:max-w-sm">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-                  </svg>
-                </span>
-                <input
-                  type="text"
-                  placeholder="Search by Title, Category, Status..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-9 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              <div className="flex flex-wrap gap-3 items-center w-full md:max-w-xl">
+                <div className="relative w-full md:max-w-sm">
+                  <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
                     </svg>
-                  </button>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search by Title, Category, Status..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-9 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-white cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                {categoryFilter && (
+                  <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs px-3 py-1.5 rounded-full animate-fade-in">
+                    <span>Category: <strong>{categoryFilter}</strong></span>
+                    <button
+                      onClick={() => setCategoryFilter('')}
+                      className="text-indigo-400 hover:text-indigo-200 focus:outline-none cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-2 self-end md:self-auto text-xs text-slate-400">
@@ -2626,6 +2767,19 @@ export default function App() {
                     {f.label}
                   </button>
                 ))}
+                {categoryFilter && (
+                  <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs px-3 py-1 rounded-full animate-fade-in">
+                    <span>Category: <strong>{categoryFilter}</strong></span>
+                    <button
+                      onClick={() => setCategoryFilter('')}
+                      className="text-indigo-400 hover:text-indigo-200 focus:outline-none cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="relative w-full md:max-w-sm">
@@ -2997,15 +3151,56 @@ export default function App() {
               <div className="flex items-center gap-3 w-full md:w-auto self-end md:self-auto">
                 <button
                   onClick={handleExportCSV}
-                  className="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={exportState !== 'idle'}
+                  className={`flex-1 md:flex-initial text-white font-semibold text-xs py-2.5 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    exportState === 'success' ? 'bg-emerald-500 border border-emerald-400' : 'bg-emerald-600 hover:bg-emerald-500 disabled:opacity-90'
+                  }`}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                    <polyline points="14 2 14 8 20 8" />
-                    <line x1="16" y1="13" x2="8" y2="13" />
-                    <line x1="16" y1="17" x2="8" y2="17" />
-                  </svg>
-                  Export Excel
+                  {exportState === 'idle' && (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                      </svg>
+                      Export CSV
+                    </>
+                  )}
+                  {exportState === 'gathering' && (
+                    <>
+                      <svg className="animate-spin w-4 h-4 text-emerald-200" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Gathering records...
+                    </>
+                  )}
+                  {exportState === 'formatting' && (
+                    <>
+                      <svg className="animate-spin w-4 h-4 text-emerald-200" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Compiling spreadsheet...
+                    </>
+                  )}
+                  {exportState === 'downloading' && (
+                    <>
+                      <svg className="animate-bounce w-4 h-4 text-emerald-200" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                      </svg>
+                      Downloading report...
+                    </>
+                  )}
+                  {exportState === 'success' && (
+                    <span className="flex items-center gap-1.5 text-white scale-105 transition-all duration-300 font-bold">
+                      <svg className="w-4.5 h-4.5 animate-scale" fill="none" stroke="currentColor" strokeWidth="3.5" viewBox="0 0 24 24">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Export Success!
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={handleExportPDF}
@@ -3872,6 +4067,8 @@ function LoginForm({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [capsLockActive, setCapsLockActive] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -3879,6 +4076,23 @@ function LoginForm({ onLogin }) {
     await onLogin(email, password);
     setLoading(false);
   };
+
+  const checkCapsLock = (e) => {
+    if (e.getModifierState) {
+      setCapsLockActive(e.getModifierState('CapsLock'));
+    }
+  };
+
+  const getPasswordStrength = (pass) => {
+    let score = 0;
+    if (pass.length >= 8) score++;
+    if (/[A-Z]/.test(pass)) score++;
+    if (/[0-9]/.test(pass)) score++;
+    if (/[^A-Za-z0-9]/.test(pass)) score++;
+    return score;
+  };
+
+  const strength = getPasswordStrength(password);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -3896,15 +4110,92 @@ function LoginForm({ onLogin }) {
       </div>
       <div className="space-y-1.5">
         <label htmlFor="login-pass" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">Password</label>
-        <input
-          id="login-pass"
-          type="password"
-          className="w-full px-4 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all"
-          placeholder="••••••••"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
+        <div className="relative">
+          <input
+            id="login-pass"
+            type={showPassword ? "text" : "password"}
+            className="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-white/10 rounded-lg text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10 transition-all"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={checkCapsLock}
+            onKeyUp={checkCapsLock}
+            onFocus={checkCapsLock}
+            onBlur={() => setCapsLockActive(false)}
+            required
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+          >
+            {showPassword ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.822 7.822L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {capsLockActive && (
+          <div className="bg-amber-950/40 border border-amber-500/20 text-amber-300 text-[10px] font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 mt-2 animate-fade-in">
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Caps Lock is active!
+          </div>
+        )}
+
+        {password.length > 0 && (
+          <div className="space-y-1.5 mt-2.5 animate-fade-in">
+            <div className="flex justify-between items-center text-[10px] font-bold">
+              <span className="text-slate-400">PASSWORD STRENGTH</span>
+              <span style={{
+                color: strength === 0 || strength === 1 ? '#ef4444' : strength === 2 || strength === 3 ? '#f59e0b' : '#10b981'
+              }}>
+                {strength === 0 || strength === 1 ? 'WEAK' : strength === 2 || strength === 3 ? 'MEDIUM' : 'STRONG'}
+              </span>
+            </div>
+            <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden flex gap-0.5">
+              <div className="h-full flex-1 transition-all duration-300" style={{
+                backgroundColor: strength >= 1 ? (strength === 1 ? '#ef4444' : strength <= 3 ? '#f59e0b' : '#10b981') : 'transparent'
+              }} />
+              <div className="h-full flex-1 transition-all duration-300" style={{
+                backgroundColor: strength >= 2 ? (strength <= 3 ? '#f59e0b' : '#10b981') : 'transparent'
+              }} />
+              <div className="h-full flex-1 transition-all duration-300" style={{
+                backgroundColor: strength >= 3 ? (strength === 3 ? '#f59e0b' : '#10b981') : 'transparent'
+              }} />
+              <div className="h-full flex-1 transition-all duration-300" style={{
+                backgroundColor: strength >= 4 ? '#10b981' : 'transparent'
+              }} />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-1 text-[9px] font-bold text-slate-500 pt-1">
+              <div className="flex items-center gap-1">
+                <span className={`w-1 h-1 rounded-full ${password.length >= 8 ? 'bg-emerald-500' : 'bg-slate-700'}`}></span>
+                <span className={password.length >= 8 ? 'text-slate-300' : ''}>8+ Characters</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className={`w-1 h-1 rounded-full ${/[A-Z]/.test(password) ? 'bg-emerald-500' : 'bg-slate-700'}`}></span>
+                <span className={/[A-Z]/.test(password) ? 'text-slate-300' : ''}>Upper Case</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className={`w-1 h-1 rounded-full ${/[0-9]/.test(password) ? 'bg-emerald-500' : 'bg-slate-700'}`}></span>
+                <span className={/[0-9]/.test(password) ? 'text-slate-300' : ''}>Numbers</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className={`w-1 h-1 rounded-full ${/[^A-Za-z0-9]/.test(password) ? 'bg-emerald-500' : 'bg-slate-700'}`}></span>
+                <span className={/[^A-Za-z0-9]/.test(password) ? 'text-slate-300' : ''}>Special Symbol</span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <button
@@ -4008,7 +4299,7 @@ function UserRow({ user, onSave, isSelf }) {
 }
 
 // Subcomponent: InteractiveDonutChart
-function InteractiveDonutChart({ data, title }) {
+function InteractiveDonutChart({ data, title, onSelectCategory, selectedCategory }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   
   const total = data.reduce((sum, item) => sum + item.value, 0);
@@ -4055,7 +4346,9 @@ function InteractiveDonutChart({ data, title }) {
             accumulatedPercent += percentage;
 
             const isHovered = hoveredIdx === idx;
-            const currentStrokeWidth = isHovered ? strokeWidth + 3 : strokeWidth;
+            const isSelected = selectedCategory === item.label;
+            const currentStrokeWidth = isSelected ? strokeWidth + 4 : (isHovered ? strokeWidth + 2.5 : strokeWidth);
+            const opacity = (!selectedCategory || isSelected) ? 1 : 0.45;
 
             return (
               <circle
@@ -4072,8 +4365,11 @@ function InteractiveDonutChart({ data, title }) {
                 className="transition-all duration-300 cursor-pointer"
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}
+                onClick={() => onSelectCategory && onSelectCategory(item.label)}
                 style={{
-                  filter: isHovered ? `drop-shadow(0 0 6px ${item.color}80)` : 'none'
+                  filter: isHovered ? `drop-shadow(0 0 6px ${item.color}80)` : 'none',
+                  opacity: opacity,
+                  transition: 'all 0.3s ease'
                 }}
               />
             );
@@ -4094,6 +4390,15 @@ function InteractiveDonutChart({ data, title }) {
                 {((data[hoveredIdx].value / total) * 100).toFixed(1)}%
               </span>
             </>
+          ) : selectedCategory ? (
+            <>
+              <span className="text-[9px] text-indigo-400 font-extrabold uppercase tracking-widest line-clamp-1">
+                Filtered By
+              </span>
+              <span className="text-xs font-black text-white mt-0.5 truncate max-w-[100px]">
+                {selectedCategory}
+              </span>
+            </>
           ) : (
             <>
               <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest">
@@ -4112,18 +4417,20 @@ function InteractiveDonutChart({ data, title }) {
         {data.map((item, idx) => {
           const pct = ((item.value / total) * 100).toFixed(1);
           const isHovered = hoveredIdx === idx;
+          const isSelected = selectedCategory === item.label;
           return (
             <div
               key={item.label}
               className={`flex items-center justify-between p-1.5 rounded-lg border transition-all cursor-pointer ${
-                isHovered ? 'bg-white/5 border-white/10' : 'bg-transparent border-transparent'
+                isSelected ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300 font-semibold' : (isHovered ? 'bg-white/5 border-white/10 text-white' : 'bg-transparent border-transparent text-slate-400')
               }`}
               onMouseEnter={() => setHoveredIdx(idx)}
               onMouseLeave={() => setHoveredIdx(null)}
+              onClick={() => onSelectCategory && onSelectCategory(item.label)}
             >
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: item.color }} />
-                <span className={`font-semibold transition-colors truncate max-w-[100px] ${isHovered ? 'text-white' : 'text-slate-400'}`}>
+                <span className={`font-semibold transition-colors truncate max-w-[100px] ${isSelected || isHovered ? 'text-white' : 'text-slate-400'}`}>
                   {item.label}
                 </span>
               </div>
@@ -4218,3 +4525,122 @@ function OpenOwnershipLogo({ className = "h-12 w-auto" }) {
     </svg>
   );
 }
+
+// Subcomponent: ParticleBackground (Canvas point network animation)
+function ParticleBackground() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    let animationFrameId;
+    let width = (canvas.width = canvas.offsetWidth);
+    let height = (canvas.height = canvas.offsetHeight);
+
+    const particles = [];
+    const particleCount = 45;
+    const connectionDist = 110;
+    
+    const mouse = { x: null, y: null, radius: 120 };
+
+    const handleResize = () => {
+      if (!canvas) return;
+      width = canvas.width = canvas.offsetWidth;
+      height = canvas.height = canvas.offsetHeight;
+    };
+    window.addEventListener('resize', handleResize);
+
+    const handleMouseMove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+    };
+    const handleMouseLeave = () => {
+      mouse.x = null;
+      mouse.y = null;
+    };
+    
+    const parent = canvas.parentElement;
+    if (parent) {
+      parent.addEventListener('mousemove', handleMouseMove);
+      parent.addEventListener('mouseleave', handleMouseLeave);
+    }
+
+    for (let i = 0; i < particleCount; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.6,
+        vy: (Math.random() - 0.5) * 0.6,
+        radius: Math.random() * 2 + 1,
+      });
+    }
+
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+
+        if (p.x < 0 || p.x > width) p.vx = -p.vx;
+        if (p.y < 0 || p.y > height) p.vy = -p.vy;
+
+        if (mouse.x !== null && mouse.y !== null) {
+          const dx = p.x - mouse.x;
+          const dy = p.y - mouse.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < mouse.radius) {
+            const force = (mouse.radius - dist) / mouse.radius;
+            const angle = Math.atan2(dy, dx);
+            p.x += Math.cos(angle) * force * 1.5;
+            p.y += Math.sin(angle) * force * 1.5;
+          }
+        }
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(140, 126, 255, 0.45)';
+        ctx.fill();
+      });
+
+      for (let i = 0; i < particles.length; i++) {
+        for (let j = i + 1; j < particles.length; j++) {
+          const pi = particles[i];
+          const pj = particles[j];
+          const dx = pi.x - pj.x;
+          const dy = pi.y - pj.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < connectionDist) {
+            const alpha = (1 - dist / connectionDist) * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(pi.x, pi.y);
+            ctx.lineTo(pj.x, pj.y);
+            ctx.strokeStyle = `rgba(99, 102, 241, ${alpha})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(draw);
+    };
+
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      window.removeEventListener('resize', handleResize);
+      if (parent) {
+        parent.removeEventListener('mousemove', handleMouseMove);
+        parent.removeEventListener('mouseleave', handleMouseLeave);
+      }
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />;
+}
+
