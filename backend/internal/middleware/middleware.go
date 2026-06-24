@@ -96,7 +96,13 @@ var allowedOrigins []string
 func init() {
 	origins := os.Getenv("ALLOWED_ORIGINS")
 	if origins == "" {
-		allowedOrigins = []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173", "http://127.0.0.1:3000"}
+		allowedOrigins = []string{
+			"http://localhost:3000",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://127.0.0.1:3000",
+			"https://smartflow-frontend-djlc.onrender.com",
+		}
 	} else {
 		allowedOrigins = strings.Split(origins, ",")
 		for i, o := range allowedOrigins {
