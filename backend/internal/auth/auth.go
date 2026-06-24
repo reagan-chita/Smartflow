@@ -2,13 +2,24 @@ package auth
 
 import (
 	"errors"
+	"log"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtKey = []byte("super-secret-approval-workflow-key-2026")
+var jwtKey []byte
+
+func init() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Println("WARNING: JWT_SECRET environment variable is not set. Using insecure default key.")
+		secret = "super-secret-approval-workflow-key-2026"
+	}
+	jwtKey = []byte(secret)
+}
 
 type Claims struct {
 	UserID     int    `json:"user_id"`
