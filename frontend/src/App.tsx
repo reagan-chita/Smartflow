@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import './App.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL 
@@ -274,6 +276,8 @@ export default function App() {
   const [loginAuditLogs, setLoginAuditLogs] = useState([]);
   const [loadingLoginAudit, setLoadingLoginAudit] = useState(false);
   const [loginAuditSearch, setLoginAuditSearch] = useState('');
+  const [loginAuditStartDate, setLoginAuditStartDate] = useState('');
+  const [loginAuditEndDate, setLoginAuditEndDate] = useState('');
   const [isAuditDropdownOpen, setIsAuditDropdownOpen] = useState(false);
 
   // 2FA Setup & Login states
@@ -654,7 +658,7 @@ export default function App() {
 
   useEffect(() => {
     setLoginAuditPage(1);
-  }, [loginAuditSearch]);
+  }, [loginAuditSearch, loginAuditStartDate, loginAuditEndDate]);
 
   useEffect(() => {
     setAppsPage(1);
@@ -664,6 +668,8 @@ export default function App() {
     setLoginAuditPage(1);
     setAuditStartDate('');
     setAuditEndDate('');
+    setLoginAuditStartDate('');
+    setLoginAuditEndDate('');
   }, [currentView]);
 
   // Extend session by dispatching dummy event
@@ -1885,6 +1891,8 @@ export default function App() {
                               setIsAuditDropdownOpen(false);
                               setSelectedApp(null);
                               setLoginAuditSearch('');
+                              setLoginAuditStartDate('');
+                              setLoginAuditEndDate('');
                               setLoginAuditPage(1);
                               setLoadingLoginAudit(true);
                               appFetch(`${API_BASE}/login-audit-logs`)
@@ -3777,7 +3785,7 @@ export default function App() {
         {currentView === 'audit-logs-login' && user && (() => {
           const filteredLoginLogs = loginAuditLogs.filter(l => {
             const q = loginAuditSearch.toLowerCase();
-            return (
+            const matchesSearch = (
               (l.user_name || '').toLowerCase().includes(q) ||
               (l.user_email || '').toLowerCase().includes(q) ||
               (l.user_role || '').toLowerCase().includes(q) ||
@@ -3786,6 +3794,19 @@ export default function App() {
               (l.location || '').toLowerCase().includes(q) ||
               (l.user_agent || '').toLowerCase().includes(q)
             );
+            if (!matchesSearch) return false;
+
+            if (loginAuditStartDate) {
+              const start = new Date(loginAuditStartDate).getTime();
+              const itemDate = new Date(l.created_at).getTime();
+              if (itemDate < start) return false;
+            }
+            if (loginAuditEndDate) {
+              const end = new Date(loginAuditEndDate).getTime() + 86400000;
+              const itemDate = new Date(l.created_at).getTime();
+              if (itemDate > end) return false;
+            }
+            return true;
           });
 
           const paginatedLoginLogs = filteredLoginLogs.slice((loginAuditPage - 1) * ITEMS_PER_PAGE, loginAuditPage * ITEMS_PER_PAGE);
@@ -3806,6 +3827,43 @@ export default function App() {
             else if (ua.includes('Android')) os = 'Android';
             else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
             return { browser, os };
+          };
+
+          const handleExportLoginCSV = () => {
+            const headers = ['ID', 'User', 'Email', 'Role', 'Activity', 'IP Address', 'Location', 'Browser', 'OS', 'Timestamp'];
+            const rows = filteredLoginLogs.map(l => {
+              const { browser, os } = parseUA(l.user_agent);
+              return [l.id, l.user_name, l.user_email, l.user_role, l.activity, l.ip_address, l.location, browser, os, new Date(l.created_at).toLocaleString()].map(v => `"${v || ''}"`).join(',');
+            });
+            const csv = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'login_activity.csv';
+            link.click();
+          };
+
+          const handleExportLoginPDF = () => {
+            const doc = new jsPDF();
+            doc.text("Login Activity Audit Report", 14, 15);
+            doc.setFontSize(10);
+            doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 22);
+            
+            const tableData = filteredLoginLogs.map(l => {
+              const { browser } = parseUA(l.user_agent);
+              return [l.id, l.user_name, l.user_role, l.activity, l.ip_address, l.location || 'Unknown', browser, new Date(l.created_at).toLocaleString()];
+            });
+
+            autoTable(doc, {
+              startY: 28,
+              head: [['ID', 'User', 'Role', 'Activity', 'IP', 'Location', 'Browser', 'Time']],
+              body: tableData,
+              theme: 'grid',
+              styles: { fontSize: 8 },
+              headStyles: { fillColor: [49, 39, 131] }
+            });
+
+            doc.save('login_activity.pdf');
           };
 
           const loginCount = filteredLoginLogs.filter(l => l.activity === 'LOGIN').length;
@@ -3864,18 +3922,42 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Search */}
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-500">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-                </span>
-                <input
-                  type="text"
-                  placeholder="Search by name, email, role, IP, activity..."
-                  value={loginAuditSearch}
-                  onChange={e => setLoginAuditSearch(e.target.value)}
-                  className="w-full max-w-sm pl-9 pr-9 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-                />
+              {/* Filter & Export Toolbar */}
+              <div className="flex flex-col lg:flex-row gap-4 mb-4 justify-between items-start lg:items-center">
+                <div className="relative w-full lg:max-w-sm">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 pointer-events-none">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, IP, location..."
+                    value={loginAuditSearch}
+                    onChange={e => setLoginAuditSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-slate-950/60 border border-white/10 rounded-xl text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+                
+                <div className="flex flex-wrap gap-3 items-center w-full lg:w-auto">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">From:</span>
+                    <input type="date" value={loginAuditStartDate} onChange={e => setLoginAuditStartDate(e.target.value)} className="bg-slate-950/60 border border-white/10 rounded-lg text-slate-200 text-xs px-2 py-1.5 focus:border-indigo-500 outline-none" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">To:</span>
+                    <input type="date" value={loginAuditEndDate} onChange={e => setLoginAuditEndDate(e.target.value)} className="bg-slate-950/60 border border-white/10 rounded-lg text-slate-200 text-xs px-2 py-1.5 focus:border-indigo-500 outline-none" />
+                  </div>
+                  
+                  <div className="h-6 w-px bg-white/10 mx-1 hidden sm:block"></div>
+                  
+                  <button onClick={handleExportLoginCSV} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors text-xs font-semibold">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    CSV
+                  </button>
+                  <button onClick={handleExportLoginPDF} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors text-xs font-semibold">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    PDF
+                  </button>
+                </div>
               </div>
 
               {/* Table */}
