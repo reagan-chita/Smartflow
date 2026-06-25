@@ -635,7 +635,7 @@ func (h *Handlers) GetReviewerQueue(w http.ResponseWriter, r *http.Request) {
 	pageStr := r.URL.Query().Get("page")
 	limitStr := r.URL.Query().Get("limit")
 	search := r.URL.Query().Get("search")
-	statusFilter := r.URL.Query().Get("status")
+	statusFilter := strings.ToUpper(r.URL.Query().Get("status"))
 
 	page := 1
 	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
