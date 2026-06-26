@@ -3908,10 +3908,6 @@ export default function App() {
                       <div className="flex flex-wrap gap-3 pt-4 border-t border-white/5">
                         <button
                           onClick={async () => {
-                            if (!actionSignature) {
-                              setErrorMsg("Digital signature is required to approve an application.");
-                              return;
-                            }
                             await handleTransition(selectedApp.id, 'approve', { comment, signature: actionSignature });
                           }}
                           disabled={!!actionLoading}

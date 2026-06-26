@@ -757,10 +757,7 @@ func (h *Handlers) Approve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&req) // comment optional for approval
 	}
 
-	if req.Signature == "" {
-		respondError(w, http.StatusBadRequest, "Digital signature is required for approval")
-		return
-	}
+
 
 	oldStatus := app.Status
 	app.Status = models.StatusApproved
