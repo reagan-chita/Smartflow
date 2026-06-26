@@ -72,6 +72,8 @@ The project is deployed and live at:
    * Reviewers can optionally draw their signature on a custom HTML5 Signature Pad canvas during the approval process. The drawn signature and the server-side approval timestamp are permanently stored and dynamically embedded directly into the generated PDF Certificate.
 16. **Attachment Auditing**:
    * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
+17. **Real-Time Server-Sent Events (SSE)**:
+   * In-app notifications are pushed instantly to connected clients using a custom pure Go SSE Broker. This event-driven architecture eliminates heavy REST API polling, drastically reducing database load while providing a true real-time user experience.
 
 ---
 
@@ -288,7 +290,7 @@ While the core assessment requirements and stretch goals are fully met, scaling 
 * **Event-Driven Architecture**: Currently, status updates synchronously create audit logs and notifications in the database. With more time, I would decouple these using an event bus (e.g., RabbitMQ or Kafka) or Go channels. Transition handlers would simply publish a `StatusChangedEvent`, allowing dedicated async workers to handle logging, email dispatch, and metrics updates without blocking the HTTP request.
 * **Email & External Notifications**: The project implements in-app notifications successfully, but an obvious next step is integrating an external provider (e.g., AWS SES or SendGrid) to send actual emails to applicants when their proposals are approved, rejected, or returned.
 * **S3 Object Storage for Attachments**: File attachments are currently saved directly into PostgreSQL as base64 text columns. This was a trade-off made for portability and easy local testing without external dependencies. In production, files should be streamed directly to an object store (Amazon S3 / GCP Cloud Storage), and only the resulting secure URLs would be stored in the database.
-* **WebSockets / Server-Sent Events (SSE)**: In-app notifications currently rely on standard REST API polling (every 10 seconds). Upgrading this to WebSockets or SSE would drastically reduce database load and provide instant, real-time feedback to the user.
+
 * **Frontend Componentization & E2E Testing**: The React client is structured primarily inside a single `App.tsx` file for velocity during this prototyping phase. A production system would break this down into atomic components and utilize a routing library (like React Router), alongside End-to-End testing suites utilizing Playwright or Cypress.
 * **Caching Layer**: Integrating Redis to cache frequent but rarely changing payloads (such as user roles, permissions, and top-level analytics) would significantly reduce the strain on PostgreSQL during high-traffic queue reviews.
 

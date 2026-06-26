@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,12 +18,23 @@ import (
 	"github.com/reaganchita/approval-workflow/backend/internal/worker"
 )
 
+type SSEBroker struct {
+	sync.RWMutex
+	Clients map[int]map[chan models.Notification]bool
+}
+
 type Handlers struct {
-	repo *repository.Repository
+	repo   *repository.Repository
+	broker *SSEBroker
 }
 
 func NewHandlers(repo *repository.Repository) *Handlers {
-	return &Handlers{repo: repo}
+	return &Handlers{
+		repo: repo,
+		broker: &SSEBroker{
+			Clients: make(map[int]map[chan models.Notification]bool),
+		},
+	}
 }
 
 // Helpers
@@ -96,6 +108,7 @@ func (h *Handlers) RegisterRoutes(r chi.Router) {
 		r.Get("/api/audit-logs", h.GetAuditLogs)
 		r.Get("/api/login-audit-logs", h.GetLoginAuditLogs)
 		r.Get("/api/notifications", h.GetNotifications)
+		r.Get("/api/notifications/stream", h.NotificationStream)
 		r.Put("/api/notifications/{id}/read", h.ReadNotification)
 		r.Post("/api/notifications/read-all", h.ReadAllNotifications)
 
@@ -1014,6 +1027,18 @@ func (h *Handlers) notify(userID int, title string, message string) {
 	}
 	_ = h.repo.CreateNotification(&notif)
 
+	// Broadcast to SSE clients
+	h.broker.RLock()
+	clients := h.broker.Clients[userID]
+	for clientChan := range clients {
+		select {
+		case clientChan <- notif:
+		default:
+			// Client channel full, drop to avoid blocking
+		}
+	}
+	h.broker.RUnlock()
+
 	user, err := h.repo.GetUserByID(userID)
 	if err == nil {
 		select {
@@ -1023,6 +1048,55 @@ func (h *Handlers) notify(userID int, title string, message string) {
 			Body:    message,
 		}:
 		default:
+		}
+	}
+}
+
+func (h *Handlers) NotificationStream(w http.ResponseWriter, r *http.Request) {
+	claims, _ := middleware.GetUserClaims(r.Context())
+
+	// Set headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	clientChan := make(chan models.Notification, 10)
+
+	// Register client
+	h.broker.Lock()
+	if h.broker.Clients[claims.UserID] == nil {
+		h.broker.Clients[claims.UserID] = make(map[chan models.Notification]bool)
+	}
+	h.broker.Clients[claims.UserID][clientChan] = true
+	h.broker.Unlock()
+
+	// Deregister on disconnect
+	defer func() {
+		h.broker.Lock()
+		delete(h.broker.Clients[claims.UserID], clientChan)
+		if len(h.broker.Clients[claims.UserID]) == 0 {
+			delete(h.broker.Clients, claims.UserID)
+		}
+		h.broker.Unlock()
+		close(clientChan)
+	}()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported!", http.StatusInternalServerError)
+		return
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case notif := <-clientChan:
+			data, err := json.Marshal(notif)
+			if err == nil {
+				fmt.Fprintf(w, "data: %s\n\n", data)
+				flusher.Flush()
+			}
 		}
 	}
 }

@@ -20,19 +20,24 @@ const (
 func Authenticate(repo *repository.Repository) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var tokenStr string
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, `{"error":"Missing Authorization header"}`, http.StatusUnauthorized)
-				return
+			if authHeader != "" {
+				parts := strings.Split(authHeader, " ")
+				if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+					tokenStr = parts[1]
+				}
+			}
+			
+			// Fallback to query parameter for EventSource (SSE) support
+			if tokenStr == "" {
+				tokenStr = r.URL.Query().Get("token")
 			}
 
-			parts := strings.Split(authHeader, " ")
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				http.Error(w, `{"error":"Invalid Authorization header format"}`, http.StatusUnauthorized)
+			if tokenStr == "" {
+				http.Error(w, `{"error":"Missing Authorization header or token parameter"}`, http.StatusUnauthorized)
 				return
 			}
-
-			tokenStr := parts[1]
 			claims, err := auth.ValidateJWT(tokenStr)
 			if err != nil {
 				http.Error(w, `{"error":"Invalid or expired token"}`, http.StatusUnauthorized)

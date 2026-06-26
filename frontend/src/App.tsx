@@ -810,12 +810,34 @@ export default function App() {
     }
   };
 
-  // Poll notifications
+  // Listen for real-time SSE notifications
   useEffect(() => {
     if (!token) return;
+    
+    // Initial fetch to get existing notifications
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 10000); // 10 seconds polling
-    return () => clearInterval(interval);
+    
+    // Establish Server-Sent Events stream
+    const sse = new EventSource(`${API_BASE}/notifications/stream?token=${token}`, { withCredentials: true });
+    
+    sse.onmessage = (event) => {
+      try {
+        const newNotif = JSON.parse(event.data);
+        setNotifications(prev => [newNotif, ...prev]);
+        setSuccessMsg(`New Alert: ${newNotif.title}`);
+        setTimeout(() => setSuccessMsg(''), 4000);
+      } catch (e) {
+        console.error("SSE parse error", e);
+      }
+    };
+    
+    sse.onerror = (err) => {
+      console.error("SSE Error:", err);
+    };
+
+    return () => {
+      sse.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
