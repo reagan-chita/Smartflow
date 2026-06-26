@@ -169,17 +169,19 @@ Once running:
 
 ## Quick Testing Guide
 
-1. Sign in as a **Reviewer** using email `reviewer@test.com` and password `password123`.
+1. **Sign in as a Reviewer** using email `reviewer@test.com` and password `password123`.
 2. Notice the application queue, SVG analytics charts, and bottleneck metrics. Hover over bars/donut segments to test interactiveness.
-3. Click on the profile menu (top-right avatar) and click **Enable 2FA**.
-4. In the setup modal:
+3. Click **Open** on a 'SUBMITTED' application. Click **Start Evaluation Review**.
+4. Test the **HTML5 Signature Pad** by optionally drawing a signature with your mouse.
+5. Click **Approve Application**.
+6. Once approved, click the **Download PDF Certificate** button to generate and view the client-side generated Open Ownership branded certificate (complete with your signature).
+7. Test the **2FA Flow**: Click on the profile menu (top-right avatar) and click **Enable 2FA**.
    * Notice that the **Auto-Generated Verification Code** card calculates the OTP in real-time.
    * Click **Auto-fill** to populate the verification code input automatically, and click **Confirm & Enable**.
-5. Click **Logout**.
-6. Log back in as `reviewer@test.com` with `password123`.
-7. You are intercepted by the **Two-Factor Authentication** prompt:
-   * Notice the **Dev Assistant** card showing the active code and time remaining.
-   * Click **Auto-fill** and click **Verify Code** to land on the dashboard.
+8. **Test the Applicant Flow**: Click **Logout**.
+   * Log in as an Applicant using `applicant@test.com` and password `password123`.
+   * Create a new application and upload an attachment file.
+   * Submit it, and review the **Audit Log** to see how the system tracks the attachment inclusion.
 
 ---
 
