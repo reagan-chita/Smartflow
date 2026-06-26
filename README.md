@@ -74,6 +74,8 @@ The project is deployed and live at:
    * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
 17. **Real-Time Server-Sent Events (SSE)**:
    * In-app notifications are pushed instantly to connected clients using a custom pure Go SSE Broker. This event-driven architecture eliminates heavy REST API polling, drastically reducing database load while providing a true real-time user experience.
+18. **Componentization & E2E Testing**:
+   * The React architecture isolates complex sub-views into distinct components (e.g. `SignaturePad.tsx`). The critical authentication and authorization flow is rigorously covered by a fully automated Cypress End-to-End headless browser testing suite.
 
 ---
 
@@ -107,6 +109,7 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 * **Authentication Security**: Implements HTTP-only JWT handling and `bcrypt` password hashing.
 * **Environment Configuration & Misconfiguration Avoidance**: To ensure safe deployments to cloud providers like Render, hardcoded secrets and wildcard CORS vulnerabilities were explicitly eliminated from the codebase.
   * **JWT Secret Management**: The backend dynamically loads the cryptographic session signing key via the `JWT_SECRET` environment variable, preventing repository leakage.
+  * **Database Credentials**: The `docker-compose.yml` injects the PostgreSQL password via the `DB_PASSWORD` environment variable (with a development fallback), ensuring credentials are never committed as plaintext constants.
   * **Strict CORS Whitelisting**: Instead of blindly allowing wildcard (`*`) access, cross-origin API requests are strictly validated against a whitelist configured via the `ALLOWED_ORIGINS` environment variable (explicitly allowing domains like `https://smartflow-frontend-djlc.onrender.com`).
 * **State Machine Guardrails**: The API structurally rejects illegal workflow state transitions (e.g., trying to modify an `APPROVED` application).
 
@@ -116,6 +119,7 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
 * **Frontend**: Vite + React (TypeScript), Tailwind CSS v4, Web Crypto API.
+* **Testing**: Cypress (E2E headless browser tests), Go `testing` package (integration tests).
 * **Database**: PostgreSQL 15.
 * **Orchestration**: Docker & Docker Compose.
 
@@ -136,9 +140,15 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 │   └── Dockerfile                   # Multi-stage Go build
 ├── frontend/
 │   ├── src/
+│   │   ├── components/
+│   │   │   └── SignaturePad.tsx      # Reusable HTML5 Canvas signature pad component
 │   │   ├── App.tsx                  # Dashboard, SPA logic, dynamic charts, dev-helpers
 │   │   ├── index.css                # Tailwind imports and Open Ownership color variables
 │   │   └── main.tsx                 # Vite mounting file
+│   ├── cypress/
+│   │   └── e2e/
+│   │       └── auth.cy.ts           # Cypress E2E auth flow test suite
+│   ├── cypress.config.ts            # Cypress configuration
 │   ├── Dockerfile                   # Multi-stage Node build & production Nginx hosting
 │   └── package.json
 ├── migrations/
@@ -189,7 +199,7 @@ Once running:
 
 ## Running Automated Tests
 
-To execute the backend testing suites locally:
+### Backend Integration Tests
 
 1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432` (or set the `DB_PASSWORD` environment variable if your database has a different password).
 2. Run the test command in the project root:
@@ -199,6 +209,23 @@ To execute the backend testing suites locally:
    ```
 
 *(If PostgreSQL is not running or accessible, database-linked integration tests will automatically skip and the suite will pass safely).*
+
+### Frontend End-to-End Tests (Cypress)
+
+1. Ensure both the backend (`go run ./backend/cmd/main.go`) and frontend (`npm run dev`) are running.
+2. Run the Cypress E2E suite from the `frontend/` directory:
+
+   ```bash
+   npm run e2e
+   ```
+
+   Or open the interactive Cypress Test Runner:
+
+   ```bash
+   npm run cy:open
+   ```
+
+The E2E suite automatically launches a headless Electron browser, navigates to the login portal, authenticates using the reviewer credentials, auto-fills the 2FA code via the Dev Assistant, and verifies the dashboard loads with analytics data.
 
 ---
 
@@ -290,8 +317,6 @@ While the core assessment requirements and stretch goals are fully met, scaling 
 * **Event-Driven Architecture**: Currently, status updates synchronously create audit logs and notifications in the database. With more time, I would decouple these using an event bus (e.g., RabbitMQ or Kafka) or Go channels. Transition handlers would simply publish a `StatusChangedEvent`, allowing dedicated async workers to handle logging, email dispatch, and metrics updates without blocking the HTTP request.
 * **Email & External Notifications**: The project implements in-app notifications successfully, but an obvious next step is integrating an external provider (e.g., AWS SES or SendGrid) to send actual emails to applicants when their proposals are approved, rejected, or returned.
 * **S3 Object Storage for Attachments**: File attachments are currently saved directly into PostgreSQL as base64 text columns. This was a trade-off made for portability and easy local testing without external dependencies. In production, files should be streamed directly to an object store (Amazon S3 / GCP Cloud Storage), and only the resulting secure URLs would be stored in the database.
-
-* **Frontend Componentization & E2E Testing**: The React client is structured primarily inside a single `App.tsx` file for velocity during this prototyping phase. A production system would break this down into atomic components and utilize a routing library (like React Router), alongside End-to-End testing suites utilizing Playwright or Cypress.
 * **Caching Layer**: Integrating Redis to cache frequent but rarely changing payloads (such as user roles, permissions, and top-level analytics) would significantly reduce the strain on PostgreSQL during high-traffic queue reviews.
 
 ---

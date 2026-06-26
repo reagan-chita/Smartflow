@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { jwtDecode } from "jwt-decode";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import SignaturePad from './components/SignaturePad';
 import './App.css';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL 
@@ -145,81 +147,6 @@ const THEMES = {
   }
 };
 
-const SignaturePad = ({ onSign }) => {
-  const canvasRef = useRef(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      canvas.width = canvas.offsetWidth;
-      canvas.height = 120;
-      const ctx = canvas.getContext('2d');
-      ctx.lineCap = 'round';
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#312783';
-    }
-  }, []);
-
-  const startDrawing = (e) => {
-    const canvas = canvasRef.current;
-    if (canvas.width !== canvas.offsetWidth) {
-      const currentData = canvas.toDataURL();
-      canvas.width = canvas.offsetWidth;
-      const ctx = canvas.getContext('2d');
-      ctx.lineCap = 'round';
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#312783';
-      const img = new Image();
-      img.src = currentData;
-      img.onload = () => ctx.drawImage(img, 0, 0);
-    }
-    const { offsetX, offsetY } = e.nativeEvent;
-    const ctx = canvas.getContext('2d');
-    ctx.beginPath();
-    ctx.moveTo(offsetX, offsetY);
-    setIsDrawing(true);
-  };
-
-  const draw = (e) => {
-    if (!isDrawing) return;
-    const { offsetX, offsetY } = e.nativeEvent;
-    const ctx = canvasRef.current.getContext('2d');
-    ctx.lineTo(offsetX, offsetY);
-    ctx.stroke();
-  };
-
-  const endDrawing = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
-    onSign(canvasRef.current.toDataURL('image/png'));
-  };
-
-  const clear = () => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    onSign('');
-  };
-
-  return (
-    <div className="space-y-2 mt-4 pb-2">
-      <div className="flex justify-between items-center">
-        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Authorized Signature <span className="text-emerald-400">(Required for Approval)</span></label>
-        <button type="button" onClick={clear} className="text-xs text-rose-400 hover:text-rose-300 transition-colors">Clear</button>
-      </div>
-      <canvas
-        ref={canvasRef}
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={endDrawing}
-        onMouseLeave={endDrawing}
-        className="w-full bg-slate-100 border border-white/20 rounded-lg cursor-crosshair touch-none"
-      />
-      <p className="text-[10px] text-slate-500 italic">Please draw your official signature above.</p>
-    </div>
-  );
-};
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
