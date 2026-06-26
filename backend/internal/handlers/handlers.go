@@ -14,6 +14,7 @@ import (
 	"github.com/reaganchita/approval-workflow/backend/internal/middleware"
 	"github.com/reaganchita/approval-workflow/backend/internal/models"
 	"github.com/reaganchita/approval-workflow/backend/internal/repository"
+	"github.com/reaganchita/approval-workflow/backend/internal/worker"
 )
 
 type Handlers struct {
@@ -38,8 +39,8 @@ func respondError(w http.ResponseWriter, status int, message string) {
 // RegisterRoutes registers all endpoints and maps them to chi router
 func (h *Handlers) RegisterRoutes(r chi.Router) {
 	// Auth
-	r.Post("/api/login", h.Login)
-	r.Post("/api/login/mfa", h.LoginMFA)
+	r.With(middleware.RateLimit).Post("/api/login", h.Login)
+	r.With(middleware.RateLimit).Post("/api/login/mfa", h.LoginMFA)
 	r.Get("/api/2fa/dev-code", h.GetDev2FACode)
 	r.Post("/api/logout", h.Logout) // requires token for audit
 
@@ -305,13 +306,18 @@ func (h *Handlers) CreateApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	comment := "Application created as draft"
+	if app.AttachmentName != "" {
+		comment += fmt.Sprintf(" (Attachment included: %s)", app.AttachmentName)
+	}
+
 	// Create initial audit log
 	audit := models.AuditLog{
 		ApplicationID: app.ID,
 		UserID:        claims.UserID,
 		OldStatus:     "",
 		NewStatus:     models.StatusDraft,
-		Comment:       "Application created as draft",
+		Comment:       comment,
 	}
 	_ = h.repo.CreateAuditLog(&audit)
 
@@ -392,6 +398,21 @@ func (h *Handlers) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to update application")
 		return
 	}
+
+	// Create audit log for the update
+	updateComment := "Application details updated"
+	if app.AttachmentName != "" {
+		updateComment += fmt.Sprintf(" (Attachment included: %s)", app.AttachmentName)
+	}
+	
+	audit := models.AuditLog{
+		ApplicationID: app.ID,
+		UserID:        claims.UserID,
+		OldStatus:     app.Status,
+		NewStatus:     app.Status, // Status doesn't change on edit
+		Comment:       updateComment,
+	}
+	_ = h.repo.CreateAuditLog(&audit)
 
 	respondJSON(w, http.StatusOK, app)
 }
@@ -736,10 +757,15 @@ func (h *Handlers) Approve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&req) // comment optional for approval
 	}
 
+	if req.Signature == "" {
+		respondError(w, http.StatusBadRequest, "Digital signature is required for approval")
+		return
+	}
+
 	oldStatus := app.Status
 	app.Status = models.StatusApproved
 
-	if err := h.repo.UpdateApplicationStatus(app.ID, app.Status); err != nil {
+	if err := h.repo.ApproveApplicationWithSignature(app.ID, req.Signature); err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to approve application")
 		return
 	}
@@ -990,6 +1016,18 @@ func (h *Handlers) notify(userID int, title string, message string) {
 		IsRead:  false,
 	}
 	_ = h.repo.CreateNotification(&notif)
+
+	user, err := h.repo.GetUserByID(userID)
+	if err == nil {
+		select {
+		case worker.EmailQueue <- worker.EmailJob{
+			To:      user.Email,
+			Subject: title,
+			Body:    message,
+		}:
+		default:
+		}
+	}
 }
 
 func (h *Handlers) GetNotifications(w http.ResponseWriter, r *http.Request) {

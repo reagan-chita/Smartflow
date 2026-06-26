@@ -60,6 +60,19 @@ The project is deployed and live at:
 * Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
 * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
+11. **Revision History Thread (GitHub PR Style)**:
+   * When an application is bounced back and forth between RETURNED and SUBMITTED, a chronological "Activity Thread" is generated on the application detail view. This distinct thread highlights reviewer-applicant conversation separate from system-level logs.
+12. **PDF Certificate Export**:
+   * Once an application reaches the APPROVED status, users can dynamically generate and download a client-side PDF certificate (via `jsPDF` & `autoTable`) decorated with official typography, gold borders, Open Ownership branding, and structured data tables.
+13. **Background Job Processing (Email Queue)**:
+   * Event-driven architecture utilizes native Go concurrency (Channels and Goroutines). When a status changes, a mock "Send Email" job is dispatched to a non-blocking asynchronous worker queue rather than delaying the HTTP response cycle.
+14. **API Security: Rate Limiting**:
+   * Token-bucket rate limiting middleware (using `sync.Mutex`) specifically protects sensitive endpoints (`/api/login`, `/api/login/mfa`) against brute-force attacks by limiting the number of requests per minute per IP address.
+15. **Digital Signatures & Approval Dates**:
+   * Reviewers must physically draw their signature on a custom HTML5 Signature Pad canvas during the approval process. The drawn signature and the server-side approval timestamp are permanently stored and dynamically embedded directly into the generated PDF Certificate.
+16. **Attachment Auditing**:
+   * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
+
 ---
 
 ## Human-Computer Interaction (HCI) Principles Applied

@@ -145,6 +145,82 @@ const THEMES = {
   }
 };
 
+const SignaturePad = ({ onSign }) => {
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.width = canvas.offsetWidth;
+      canvas.height = 120;
+      const ctx = canvas.getContext('2d');
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#312783';
+    }
+  }, []);
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    if (canvas.width !== canvas.offsetWidth) {
+      const currentData = canvas.toDataURL();
+      canvas.width = canvas.offsetWidth;
+      const ctx = canvas.getContext('2d');
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#312783';
+      const img = new Image();
+      img.src = currentData;
+      img.onload = () => ctx.drawImage(img, 0, 0);
+    }
+    const { offsetX, offsetY } = e.nativeEvent;
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(offsetX, offsetY);
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const { offsetX, offsetY } = e.nativeEvent;
+    const ctx = canvasRef.current.getContext('2d');
+    ctx.lineTo(offsetX, offsetY);
+    ctx.stroke();
+  };
+
+  const endDrawing = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    onSign(canvasRef.current.toDataURL('image/png'));
+  };
+
+  const clear = () => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onSign('');
+  };
+
+  return (
+    <div className="space-y-2 mt-4 pb-2">
+      <div className="flex justify-between items-center">
+        <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Authorized Signature <span className="text-emerald-400">(Required for Approval)</span></label>
+        <button type="button" onClick={clear} className="text-xs text-rose-400 hover:text-rose-300 transition-colors">Clear</button>
+      </div>
+      <canvas
+        ref={canvasRef}
+        onMouseDown={startDrawing}
+        onMouseMove={draw}
+        onMouseUp={endDrawing}
+        onMouseLeave={endDrawing}
+        className="w-full bg-slate-100 border border-white/20 rounded-lg cursor-crosshair touch-none"
+      />
+      <p className="text-[10px] text-slate-500 italic">Please draw your official signature above.</p>
+    </div>
+  );
+};
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')) || null);
@@ -203,8 +279,7 @@ export default function App() {
 
   // Reviewer comment
   const [comment, setComment] = useState('');
-
-  // Feedback states
+  const [actionSignature, setActionSignature] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -1490,6 +1565,101 @@ export default function App() {
   };
 
   // Actions transitions
+  const generatePDFCertificate = (app) => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    
+    // Premium Border
+    doc.setDrawColor(49, 39, 131); // theme-700 #312783
+    doc.setLineWidth(1.5);
+    doc.rect(15, 15, 180, 267);
+    doc.setDrawColor(200, 180, 100); // Gold-ish inner border
+    doc.setLineWidth(0.5);
+    doc.rect(17, 17, 176, 263);
+
+    // Header Text
+    doc.setTextColor(49, 39, 131);
+    doc.setFont("times", "bold");
+    doc.setFontSize(36);
+    doc.text("Certificate of Approval", 105, 45, { align: 'center' });
+    
+    doc.setTextColor(100, 100, 100);
+    doc.setFontSize(12);
+    doc.setFont("times", "italic");
+    doc.text("Awarded by the Smartflow Evaluation Committee", 105, 55, { align: 'center' });
+
+    // Main Body
+    doc.setTextColor(40, 40, 40);
+    doc.setFont("times", "normal");
+    doc.setFontSize(16);
+    doc.text("This document certifies that the following application has been", 105, 75, { align: 'center' });
+    doc.text("formally reviewed and APPROVED.", 105, 83, { align: 'center' });
+
+    doc.setFont("times", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(0, 0, 0);
+    doc.text(app.title.toUpperCase(), 105, 105, { align: 'center' });
+
+    // Details Table using autoTable
+    autoTable(doc, {
+      startY: 120,
+      margin: { left: 30, right: 30 },
+      theme: 'grid',
+      headStyles: { fillColor: [49, 39, 131], textColor: 255, fontStyle: 'bold', halign: 'center' },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 60, fillColor: [248, 248, 250] },
+        1: { cellWidth: 90 }
+      },
+      body: [
+        ['Category', app.category],
+        ['Amount Approved', `ZMW ${app.amount.toLocaleString()}`],
+        ['Applicant Name', app.owner_name || user.name],
+        ['Approval Date', new Date().toLocaleDateString()],
+        ['Application ID', `#APP-${app.id.toString().padStart(5, '0')}`]
+      ],
+    });
+
+    // Description section
+    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 170;
+    
+    doc.setFont("times", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(40, 40, 40);
+    doc.text("Project Description:", 30, finalY + 15);
+    doc.setFont("times", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(80, 80, 80);
+    const splitDesc = doc.splitTextToSize(app.description || 'No description provided.', 150);
+    doc.text(splitDesc, 30, finalY + 22);
+
+    // Footer Signatures
+    doc.setDrawColor(150, 150, 150);
+    doc.setLineWidth(0.5);
+    doc.line(40, 250, 90, 250);
+    doc.line(120, 250, 170, 250);
+    
+    if (app.digital_signature) {
+      doc.addImage(app.digital_signature, 'PNG', 50, 230, 30, 18);
+    }
+    
+    doc.setFont("times", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(40, 40, 40);
+    doc.text("Authorized Signature", 65, 256, { align: 'center' });
+    doc.text("Date", 145, 256, { align: 'center' });
+    
+    const approvalDateStr = app.approval_date ? new Date(app.approval_date).toLocaleDateString() : new Date().toLocaleDateString();
+    doc.setFont("times", "italic");
+    doc.text(approvalDateStr, 145, 245, { align: 'center' });
+
+    doc.setFontSize(9);
+    doc.setFont("times", "normal");
+    doc.setTextColor(150, 150, 150);
+    doc.text("Generated securely by Smartflow Enterprise", 105, 275, { align: 'center' });
+
+    doc.save(`Approved_${app.title.replace(/\s+/g, '_')}.pdf`);
+    showToast(`Premium Certificate downloaded for ${app.title}`, 'success');
+  };
+
   const handleTransition = async (appId, actionPath, payload = {}) => {
     setErrorMsg('');
     setActionLoading(actionPath);
@@ -3387,6 +3557,15 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {selectedApp.status === 'APPROVED' && (
+                <button
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer flex items-center gap-2"
+                  onClick={() => generatePDFCertificate(selectedApp)}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                  Download PDF Certificate
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -3418,6 +3597,27 @@ export default function App() {
                       {selectedApp.description || 'No description provided.'}
                     </p>
                   </div>
+
+                  {/* Revision History Thread */}
+                  {auditLogs && auditLogs.filter(log => log.new_status === 'RETURNED').length > 0 && (
+                    <div className="mt-8 border-t border-white/5 pt-6 space-y-4 animate-fade-in">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <svg className="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"></path></svg>
+                        Revision History Thread
+                      </h3>
+                      <div className="space-y-4">
+                        {[...auditLogs].reverse().filter(log => log.new_status === 'RETURNED' || log.new_status === 'SUBMITTED' || log.old_status === 'RETURNED').map(log => (
+                          <div key={`rev-${log.id}`} className={`p-4 rounded-lg border ${log.new_status === 'RETURNED' ? 'bg-rose-950/20 border-rose-500/20' : 'bg-indigo-950/20 border-indigo-500/20'}`}>
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-xs font-semibold text-slate-200">{log.user_name || `User ${log.user_id}`} <span className="text-slate-500 font-normal ml-1">changed to {log.new_status}</span></span>
+                              <span className="text-[10px] text-slate-500">{new Date(log.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-slate-300 italic">"{log.comment}"</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {selectedApp.attachment_name && selectedApp.attachment_data && (
                     <div className="space-y-3 border-t border-white/5 pt-4">
@@ -3575,6 +3775,27 @@ export default function App() {
                     </p>
                   </div>
 
+                  {/* Revision History Thread */}
+                  {auditLogs && auditLogs.filter(log => log.new_status === 'RETURNED').length > 0 && (
+                    <div className="mt-8 border-t border-white/5 pt-6 space-y-4 animate-fade-in">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <svg className="w-4 h-4 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"></path></svg>
+                        Revision History Thread
+                      </h3>
+                      <div className="space-y-4">
+                        {[...auditLogs].reverse().filter(log => log.new_status === 'RETURNED' || log.new_status === 'SUBMITTED' || log.old_status === 'RETURNED').map(log => (
+                          <div key={`rev-${log.id}`} className={`p-4 rounded-lg border ${log.new_status === 'RETURNED' ? 'bg-rose-950/20 border-rose-500/20' : 'bg-indigo-950/20 border-indigo-500/20'}`}>
+                            <div className="flex justify-between items-start mb-2">
+                              <span className="text-xs font-semibold text-slate-200">{log.user_name || `User ${log.user_id}`} <span className="text-slate-500 font-normal ml-1">changed to {log.new_status}</span></span>
+                              <span className="text-[10px] text-slate-500">{new Date(log.created_at).toLocaleString()}</span>
+                            </div>
+                            <p className="text-sm text-slate-300 italic">"{log.comment}"</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {selectedApp.attachment_name && selectedApp.attachment_data && (
                     <div className="space-y-3 border-t border-white/5 pt-4">
                       <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider block">Attachment</span>
@@ -3681,10 +3902,16 @@ export default function App() {
                         />
                       </div>
 
-                      <div className="flex flex-wrap gap-3 pt-2 border-t border-white/5">
+                      <SignaturePad onSign={setActionSignature} />
+
+                      <div className="flex flex-wrap gap-3 pt-4 border-t border-white/5">
                         <button
                           onClick={async () => {
-                            await handleTransition(selectedApp.id, 'approve', { comment });
+                            if (!actionSignature) {
+                              setErrorMsg("Digital signature is required to approve an application.");
+                              return;
+                            }
+                            await handleTransition(selectedApp.id, 'approve', { comment, signature: actionSignature });
                           }}
                           disabled={!!actionLoading}
                           className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 px-5 rounded-xl shadow-md transition-all cursor-pointer disabled:opacity-60 flex items-center gap-2"

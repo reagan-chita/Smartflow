@@ -71,13 +71,13 @@ func (r *Repository) CreateApplication(app *models.Application) error {
 
 func (r *Repository) GetApplicationByID(id int) (*models.Application, error) {
 	query := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
 		WHERE a.id = $1 AND a.is_deleted = false`
 	var app models.Application
 	err := r.db.QueryRow(query, id).Scan(
-		&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
+		&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 	)
 	if err != nil {
 		return nil, err
@@ -87,7 +87,7 @@ func (r *Repository) GetApplicationByID(id int) (*models.Application, error) {
 
 func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application, error) {
 	query := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
 		WHERE a.owner_id = $1 AND a.is_deleted = false
@@ -102,7 +102,7 @@ func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, err
@@ -114,7 +114,7 @@ func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application
 
 func (r *Repository) GetAllApplications() ([]models.Application, error) {
 	query := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
 		WHERE a.is_deleted = false
@@ -129,7 +129,7 @@ func (r *Repository) GetAllApplications() ([]models.Application, error) {
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, err
@@ -175,7 +175,7 @@ func (r *Repository) GetReviewerQueuePaginated(page, limit int, search, statusFi
 
 	// Data query
 	dataQuery := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at ` + baseQuery + `
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '') ` + baseQuery + `
 		ORDER BY a.created_at DESC
 		LIMIT $` + strconv.Itoa(argCounter) + ` OFFSET $` + strconv.Itoa(argCounter+1)
 	
@@ -191,7 +191,7 @@ func (r *Repository) GetReviewerQueuePaginated(page, limit int, search, statusFi
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -212,11 +212,14 @@ func (r *Repository) UpdateApplication(app *models.Application) error {
 }
 
 func (r *Repository) UpdateApplicationStatus(appID int, status string) error {
-	query := `
-		UPDATE applications
-		SET status = $1, updated_at = $2
-		WHERE id = $3`
-	_, err := r.db.Exec(query, status, time.Now(), appID)
+	query := `UPDATE applications SET status = $1, updated_at = NOW() WHERE id = $2`
+	_, err := r.db.Exec(query, status, appID)
+	return err
+}
+
+func (r *Repository) ApproveApplicationWithSignature(appID int, signature string) error {
+	query := `UPDATE applications SET status = $1, updated_at = NOW(), approval_date = NOW(), digital_signature = $2 WHERE id = $3`
+	_, err := r.db.Exec(query, models.StatusApproved, signature, appID)
 	return err
 }
 

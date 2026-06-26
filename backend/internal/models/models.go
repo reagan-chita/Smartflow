@@ -46,8 +46,10 @@ type Application struct {
 	OwnerName      string    `json:"owner_name,omitempty"` // populated on query
 	AttachmentName string    `json:"attachment_name"`
 	AttachmentData string    `json:"attachment_data"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ApprovalDate   *time.Time `json:"approval_date,omitempty"`
+	DigitalSignature string   `json:"digital_signature,omitempty"`
 }
 
 type AuditLog struct {
@@ -88,7 +90,8 @@ type CreateApplicationRequest struct {
 }
 
 type TransitionRequest struct {
-	Comment string `json:"comment"`
+	Comment   string `json:"comment"`
+	Signature string `json:"signature,omitempty"`
 }
 
 type UpdateUserPermissionsRequest struct {

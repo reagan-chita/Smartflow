@@ -17,6 +17,7 @@ import (
 	"github.com/reaganchita/approval-workflow/backend/internal/handlers"
 	appMiddleware "github.com/reaganchita/approval-workflow/backend/internal/middleware"
 	"github.com/reaganchita/approval-workflow/backend/internal/repository"
+	"github.com/reaganchita/approval-workflow/backend/internal/worker"
 )
 
 func main() {
@@ -98,6 +99,9 @@ func main() {
 
 	// Register API endpoints
 	hand.RegisterRoutes(r)
+
+	// Start background workers
+	go worker.StartEmailWorker()
 
 	port := getEnv("PORT", "8080")
 	log.Printf("Server listening on port %s", port)
