@@ -1619,7 +1619,7 @@ export default function App() {
     });
 
     // Description section
-    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 170;
+    let finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY : 170;
     
     doc.setFont("times", "bold");
     doc.setFontSize(12);
@@ -1657,7 +1657,8 @@ export default function App() {
     doc.text("Generated securely by Smartflow Enterprise", 105, 275, { align: 'center' });
 
     doc.save(`Approved_${app.title.replace(/\s+/g, '_')}.pdf`);
-    showToast(`Premium Certificate downloaded for ${app.title}`, 'success');
+    setSuccessMsg(`Premium Certificate downloaded for ${app.title}`);
+    setTimeout(() => setSuccessMsg(''), 3000);
   };
 
   const handleTransition = async (appId, actionPath, payload = {}) => {
