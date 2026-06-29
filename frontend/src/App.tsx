@@ -717,7 +717,14 @@ export default function App() {
         method: 'PUT'
       });
       if (res.ok) {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+        setNotifications(prev => {
+          const updated = prev.map(n => n.id === id ? { ...n, is_read: true } : n);
+          // Close dropdown if no unread notifications remain
+          if (!updated.some(n => !n.is_read)) {
+            setTimeout(() => setIsNotifOpen(false), 400);
+          }
+          return updated;
+        });
       }
     } catch (err) {
       console.error(err);
@@ -731,6 +738,8 @@ export default function App() {
       });
       if (res.ok) {
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        // Close the notification dropdown after marking all as read
+        setTimeout(() => setIsNotifOpen(false), 400);
       }
     } catch (err) {
       console.error(err);
@@ -2153,9 +2162,10 @@ export default function App() {
                             {Object.keys(THEMES).map(themeName => (
                               <button
                                 key={themeName}
-                                onClick={(e) => {
-                                  e.stopPropagation();
+                                onClick={() => {
                                   setThemeColor(themeName);
+                                  // Close the profile dropdown after selecting a theme
+                                  setTimeout(() => setIsProfileDropdownOpen(false), 300);
                                 }}
                                 className={`w-5 h-5 rounded-full border-2 transition-transform cursor-pointer ${themeColor === themeName ? 'scale-125 border-white shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent hover:scale-110 shadow-md'}`}
                                 style={{ backgroundColor: THEMES[themeName]['theme-500'] }}
