@@ -6,7 +6,7 @@ services:
     container_name: workflow_db
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-chita@1992}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: workflow_db
     ports:
       - "5432:5432"
@@ -29,12 +29,12 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=postgres
-      - DB_PASSWORD=${DB_PASSWORD:-chita@1992}
+      - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=workflow_db
       - DB_SSLMODE=disable
       - PORT=8080
-      - JWT_SECRET=${JWT_SECRET:-super-secret-approval-workflow-key-2026}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173,https://smartflow-frontend-djlc.onrender.com}
+      - JWT_SECRET=${JWT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
     depends_on:
       db:
         condition: service_healthy
