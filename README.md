@@ -97,6 +97,9 @@ This system was designed with core HCI principles in mind to ensure a seamless, 
    * **Real-World Terminology:** The system uses standard, recognizable bureaucratic language (Applicant, Reviewer, Queue, Submit, Return) to minimize cognitive load.
 5. **Aesthetic and Minimalist Design**
    * **De-cluttered Interfaces:** The dashboard utilizes responsive CSS Grid layouts to ensure complex analytics and data are digestible without feeling crowded. Extraneous visual noise was intentionally removed to let primary tasks and metrics take focus.
+6. **Mobile First & Responsive Layout**
+   * **Collapsible Drawer Navigation:** Implemented a full-screen slide-down hamburger navigation drawer on smaller viewports to prevent layout crowding.
+   * **Touch-Friendly Targets & Momentum Scrolling:** Standardized tap targets (`min-height: 36px`) and enabled smooth horizontal touch scrolling for list directories to guarantee a native app feel.
 
 ---
 
@@ -433,13 +436,13 @@ While the core assessment requirements and stretch goals are fully met, scaling 
 
 **AI-Assisted Development Disclosure**
 
-**AI Tools Used:** ChatGPT, Gemini (Antigravity IDE)
+**AI Tools Used:** ChatGPT, Gemini & Claude (via Antigravity IDE)
 
 **How AI Was Used:**
 
 * Assisted with generating initial project scaffolding and boilerplate code.
 * Provided suggestions for database schema design and backend route configuration.
-* Assisted with code refactoring, debugging, and troubleshooting.
+* Assisted with code refactoring, debugging, and troubleshooting (including the `jwt-decode` dependency fix on Render).
 * Helped review code for readability, maintainability, and adherence to best practices.
 * Supported documentation, implementation planning, technical research, and test coverage expansion.
 
@@ -449,6 +452,7 @@ The system architecture, business requirements analysis, feature implementation,
 * **Code Refactoring & Bug Fixing**:
   * Assisted with migrating the monolithic React frontend from JavaScript (.jsx) to TypeScript (.tsx) to satisfy strict technical stack constraints, including generating tsconfig files and resolving type compilation errors.
   * Helped resolve a usability issue where row-clicks immediately opened edit modals for returned applications, updating the workflow to load details views first.
+  * Implemented mobile-first hamburger drawers, responsive card flows, and auto-dismiss states for notification and theme colors.
 * **Testing**: Generated boilerplate integration tests and validated authorization checks.
 * **Manual Verification**:
   * Ran the database schema migrations locally against a PostgreSQL instance.
