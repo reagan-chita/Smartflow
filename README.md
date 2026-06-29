@@ -1,4 +1,4 @@
-# Submission & Approval Workflow Application Assignment B (Open Ownership Branded Edition)
+# SmartFlow — Submission & Approval Workflow Application (Open Ownership Branded Edition)
 
 This project is a multi-tier web application implementing an **Application Submission & Approval Workflow**. It has been customized to align with **Open Ownership's brand identity** (featuring official SVG logos and their signature `#3b25d8` vibrant blue-indigo and `#312783` deep navy-indigo color scheme).
 
@@ -61,21 +61,21 @@ The project is deployed and live at:
 * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
 11. **Revision History Thread (GitHub PR Style)**:
-   * When an application is bounced back and forth between RETURNED and SUBMITTED, a chronological "Activity Thread" is generated on the application detail view. This distinct thread highlights reviewer-applicant conversation separate from system-level logs.
+    * When an application is bounced back and forth between RETURNED and SUBMITTED, a chronological "Activity Thread" is generated on the application detail view. This distinct thread highlights reviewer-applicant conversation separate from system-level logs.
 12. **PDF Certificate Export**:
-   * Once an application reaches the APPROVED status, users can dynamically generate and download a client-side PDF certificate (via `jsPDF` & `autoTable`) decorated with official typography, gold borders, Open Ownership branding, and structured data tables.
+    * Once an application reaches the APPROVED status, users can dynamically generate and download a client-side PDF certificate (via `jsPDF` & `autoTable`) decorated with official typography, gold borders, Open Ownership branding, and structured data tables.
 13. **Background Job Processing (Email Queue)**:
-   * Event-driven architecture utilizes native Go concurrency (Channels and Goroutines). When a status changes, a mock "Send Email" job is dispatched to a non-blocking asynchronous worker queue rather than delaying the HTTP response cycle.
+    * Event-driven architecture utilizes native Go concurrency (Channels and Goroutines). When a status changes, a mock "Send Email" job is dispatched to a non-blocking asynchronous worker queue rather than delaying the HTTP response cycle.
 14. **API Security: Rate Limiting**:
-   * Token-bucket rate limiting middleware (using `sync.Mutex`) specifically protects sensitive endpoints (`/api/login`, `/api/login/mfa`) against brute-force attacks by limiting the number of requests per minute per IP address.
+    * Token-bucket rate limiting middleware (using `sync.Mutex`) specifically protects sensitive endpoints (`/api/login`, `/api/login/mfa`) against brute-force attacks by limiting the number of requests per minute per IP address.
 15. **Digital Signatures & Approval Dates**:
-   * Reviewers can optionally draw their signature on a custom HTML5 Signature Pad canvas during the approval process. The drawn signature and the server-side approval timestamp are permanently stored and dynamically embedded directly into the generated PDF Certificate.
+    * Reviewers can optionally draw their signature on a custom HTML5 Signature Pad canvas during the approval process. The drawn signature and the server-side approval timestamp are permanently stored and dynamically embedded directly into the generated PDF Certificate.
 16. **Attachment Auditing**:
-   * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
+    * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
 17. **Real-Time Server-Sent Events (SSE)**:
-   * In-app notifications are pushed instantly to connected clients using a custom pure Go SSE Broker. This event-driven architecture eliminates heavy REST API polling, drastically reducing database load while providing a true real-time user experience.
+    * In-app notifications are pushed instantly to connected clients using a custom pure Go SSE Broker. This event-driven architecture eliminates heavy REST API polling, drastically reducing database load while providing a true real-time user experience.
 18. **Componentization & E2E Testing**:
-   * The React architecture isolates complex sub-views into distinct components (e.g. `SignaturePad.tsx`). The critical authentication and authorization flow is rigorously covered by a fully automated Cypress End-to-End headless browser testing suite.
+    * The React architecture isolates complex sub-views into distinct components (e.g. `SignaturePad.tsx`). The critical authentication and authorization flow is rigorously covered by a fully automated Cypress End-to-End headless browser testing suite.
 
 ---
 
@@ -107,10 +107,10 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 * **Immunity to SQL Injection**: All database operations in `repository.go` utilize strictly parameterized queries (`$1`, `$2`) executed via PostgreSQL and Go's native `database/sql` driver. User inputs are never concatenated into raw SQL strings, ensuring malicious payloads are compiled strictly as harmless data rather than executable syntax.
 * **Automated Penetration Testing**: The codebase undergoes Static Application Security Testing (SAST) using `gosec` to formally verify the absence of string-concatenated SQL queries, weak cryptographic primitives, and hardcoded credentials.
 * **Authentication Security**: Implements HTTP-only JWT handling and `bcrypt` password hashing.
-* **Environment Configuration & Misconfiguration Avoidance**: To ensure safe deployments to cloud providers like Render, hardcoded secrets and wildcard CORS vulnerabilities were explicitly eliminated from the codebase.
+* **Environment-Based Secret Management**: All sensitive configuration (database passwords, JWT signing keys, CORS origins) is externalized via environment variables. A `.env` file is used for local development and is excluded from version control via `.gitignore`. A `.env.example` template is provided for onboarding new developers without exposing real credentials.
   * **JWT Secret Management**: The backend dynamically loads the cryptographic session signing key via the `JWT_SECRET` environment variable, preventing repository leakage.
-  * **Database Credentials**: The `docker-compose.yml` injects the PostgreSQL password via the `DB_PASSWORD` environment variable (with a development fallback), ensuring credentials are never committed as plaintext constants.
-  * **Strict CORS Whitelisting**: Instead of blindly allowing wildcard (`*`) access, cross-origin API requests are strictly validated against a whitelist configured via the `ALLOWED_ORIGINS` environment variable (explicitly allowing domains like `https://smartflow-frontend-djlc.onrender.com`).
+  * **Database Credentials**: The `docker-compose.yml` injects the PostgreSQL password via the `${DB_PASSWORD}` environment variable with no hardcoded fallback, ensuring credentials are never committed as plaintext.
+  * **Strict CORS Whitelisting**: Instead of blindly allowing wildcard (`*`) access, cross-origin API requests are strictly validated against a whitelist configured via the `ALLOWED_ORIGINS` environment variable.
 * **State Machine Guardrails**: The API structurally rejects illegal workflow state transitions (e.g., trying to modify an `APPROVED` application).
 
 ---
@@ -118,10 +118,11 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 ## Technical Stack
 
 * **Backend**: Go 1.26, standard SQL database library, `go-chi/chi` for routing, `golang-jwt` for tokens, `bcrypt` for hashing.
-* **Frontend**: Vite + React (TypeScript), Tailwind CSS v4, Web Crypto API.
+* **Frontend**: Vite + React (TypeScript), Tailwind CSS v4, Web Crypto API, `jwt-decode`, `jsPDF`.
 * **Testing**: Cypress (E2E headless browser tests), Go `testing` package (integration tests).
 * **Database**: PostgreSQL 15.
 * **Orchestration**: Docker & Docker Compose.
+* **Deployment**: Render (via `render.yaml` Blueprint).
 
 ---
 
@@ -134,15 +135,17 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 │   ├── internal/
 │   │   ├── auth/                    # JWT, Bcrypt, and pure Go TOTP helpers
 │   │   ├── handlers/                # HTTP Endpoints (Login, Create, Submit, Review, 2FA)
-│   │   ├── middleware/              # JWT verification, Role authorization, CORS
+│   │   ├── middleware/              # JWT verification, Role authorization, CORS, Rate Limiting
 │   │   ├── models/                  # Struct configurations for payload and DB
-│   │   └── repository/              # SQL queries and DB communication
+│   │   ├── repository/             # SQL queries and DB communication
+│   │   └── worker/                  # Background email queue goroutine worker
 │   └── Dockerfile                   # Multi-stage Go build
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
 │   │   │   └── SignaturePad.tsx      # Reusable HTML5 Canvas signature pad component
 │   │   ├── App.tsx                  # Dashboard, SPA logic, dynamic charts, dev-helpers
+│   │   ├── App.css                  # Component-level styles
 │   │   ├── index.css                # Tailwind imports and Open Ownership color variables
 │   │   └── main.tsx                 # Vite mounting file
 │   ├── cypress/
@@ -152,30 +155,111 @@ The backend is hardened against standard web vulnerabilities, particularly **SQL
 │   ├── Dockerfile                   # Multi-stage Node build & production Nginx hosting
 │   └── package.json
 ├── migrations/
-│   ├── 000001_create_schema.up.sql  # Table setup script & default seeded accounts
-│   ├── 000005_add_login_audit.up.sql # Table for tracking login activity
-│   └── 000006_add_2fa.up.sql        # Add columns to users table for 2FA support
+│   ├── 000001_create_schema.up.sql          # Table setup script & default seeded accounts
+│   ├── 000002_add_permissions.up.sql        # Permission system for fine-grained access control
+│   ├── 000003_add_roles_table.up.sql        # Role definitions and default permission sets
+│   ├── 000004_add_attachments_and_notifications.up.sql  # File attachments & notification support
+│   ├── 000005_add_login_audit.up.sql        # Login activity tracking table
+│   ├── 000006_add_2fa.up.sql                # Two-factor authentication columns
+│   ├── 000007_add_session_version.up.sql    # Single-device concurrency lock
+│   ├── 000008_soft_delete.up.sql            # Enterprise soft delete flag
+│   ├── 000009_add_login_location.up.sql     # Geolocation tracking for login audits
+│   └── 000010_add_digital_signature.up.sql  # Digital signature & approval date columns
 ├── tests/
-│   └── workflow_test.go             # Automated integration tests suite
-├── docker-compose.yml               # Container orchestrator
+│   ├── workflow_test.go             # Automated integration tests suite
+│   └── test_cases_summary.md        # Documented test case coverage
+├── .env.example                     # Environment variable template (safe to commit)
+├── .gitignore                       # Excludes .env, binaries, and IDE files
+├── docker-compose.yml               # Container orchestrator (secrets via .env)
+├── render.yaml                      # Render deployment Blueprint (backend + frontend + DB)
+├── go.mod                           # Go module definition
+├── go.sum                           # Go dependency checksums
 └── README.md
 ```
 
 ---
 
-## How to Run the Application
+## Environment Variables
 
-To start the database, backend API, and React frontend simultaneously, run:
+All secrets and configuration are managed via environment variables. Copy the `.env.example` template to get started:
 
 ```bash
-docker-compose up --build
+cp .env.example .env
 ```
 
-Once running:
+| Variable | Description | Example |
+|---|---|---|
+| `DB_PASSWORD` | PostgreSQL password | `your_secure_password` |
+| `DB_HOST` | Database host | `localhost` |
+| `DB_PORT` | Database port | `5432` |
+| `DB_USER` | Database user | `postgres` |
+| `DB_NAME` | Database name | `workflow_db` |
+| `DB_SSLMODE` | SSL mode for DB connection | `disable` |
+| `JWT_SECRET` | Signing key for JWT tokens | `your_jwt_secret_here` |
+| `ALLOWED_ORIGINS` | Comma-separated CORS whitelist | `http://localhost:3000,http://localhost:5173` |
+| `PORT` | Backend server port | `8080` |
+| `DATABASE_URL` | Full connection string (Render production) | Provided by Render |
 
-* **React Frontend**: Access at `http://localhost:3000`
-* **Go API Server**: Listening at `http://localhost:8080`
-* **Postgres Database**: Port `5432`
+> **⚠️ Important**: Never commit the `.env` file. It is excluded via `.gitignore`. Only `.env.example` (which contains placeholder values) is tracked in version control.
+
+---
+
+## How to Run the Application
+
+### Option 1: Docker Compose (Recommended)
+
+1. **Set up environment variables**:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual values
+   ```
+
+2. **Start all services**:
+
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Access the application**:
+   * **React Frontend**: `http://localhost:3000`
+   * **Go API Server**: `http://localhost:8080`
+   * **PostgreSQL**: `localhost:5432`
+
+### Option 2: Local Development (without Docker)
+
+**Prerequisites**: Go 1.26+, Node.js 20+, PostgreSQL 15 running locally.
+
+1. **Set up environment variables**:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual database password and settings
+   ```
+
+2. **Start the backend** (from project root):
+
+   ```powershell
+   # PowerShell
+   $env:DB_PASSWORD="your_password"; $env:DB_NAME="workflow_db"; $env:DB_USER="postgres"; $env:DB_HOST="localhost"; $env:DB_PORT="5432"; $env:DB_SSLMODE="disable"; $env:JWT_SECRET="your_jwt_secret"; $env:ALLOWED_ORIGINS="http://localhost:5173"; go run ./backend/cmd/main.go
+   ```
+
+   ```bash
+   # Bash / macOS / Linux
+   DB_PASSWORD=your_password DB_NAME=workflow_db DB_USER=postgres DB_HOST=localhost DB_PORT=5432 DB_SSLMODE=disable JWT_SECRET=your_jwt_secret ALLOWED_ORIGINS=http://localhost:5173 go run ./backend/cmd/main.go
+   ```
+
+3. **Start the frontend** (from `frontend/` directory):
+
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+4. **Access the application**:
+   * **React Frontend (Vite dev server)**: `http://localhost:5173`
+   * **Go API Server**: `http://localhost:8080`
 
 ---
 
@@ -201,11 +285,17 @@ Once running:
 
 ### Backend Integration Tests
 
-1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432` (or set the `DB_PASSWORD` environment variable if your database has a different password).
+1. Ensure a local PostgreSQL server is running and accessible at `localhost:5432`.
 2. Run the test command in the project root:
 
-   ```bash
+   ```powershell
+   # PowerShell
    $env:DB_PASSWORD="your_password"; go test -v ./...
+   ```
+
+   ```bash
+   # Bash
+   DB_PASSWORD=your_password go test -v ./...
    ```
 
 *(If PostgreSQL is not running or accessible, database-linked integration tests will automatically skip and the suite will pass safely).*
@@ -245,6 +335,8 @@ erDiagram
         string role
         string tfa_secret
         boolean tfa_enabled
+        int session_version
+        boolean is_deleted
         timestamp created_at
     }
     ROLES {
@@ -262,6 +354,9 @@ erDiagram
         int owner_id FK
         string attachment_name
         text attachment_data
+        text digital_signature
+        timestamp approval_date
+        boolean is_deleted
         timestamp created_at
     }
     AUDIT_LOGS {
@@ -282,6 +377,7 @@ erDiagram
         string activity
         string ip_address
         string user_agent
+        string location
         timestamp created_at
     }
     NOTIFICATIONS {
@@ -310,6 +406,18 @@ erDiagram
 
 ---
 
+## Deployment (Render)
+
+The project includes a `render.yaml` Blueprint for one-click deployment to [Render](https://render.com):
+
+* **Backend**: Docker-based web service (port 8080) connected to a managed PostgreSQL database via `DATABASE_URL`.
+* **Frontend**: Static site built with `npm run build` and served from the `dist/` directory with SPA rewrite rules.
+* **Database**: Managed PostgreSQL instance (free tier).
+
+To deploy, connect the GitHub repository to Render and use the Blueprint feature — it will automatically provision all services from `render.yaml`.
+
+---
+
 ## Trade-offs & Future Enhancements (What I'd add with more time)
 
 While the core assessment requirements and stretch goals are fully met, scaling this application to an enterprise-grade production environment would involve the following architectural enhancements:
@@ -323,9 +431,9 @@ While the core assessment requirements and stretch goals are fully met, scaling 
 
 ## AI Tools Disclosure
 
-***AI-Assisted Development Disclosure**
+**AI-Assisted Development Disclosure**
 
-**AI Tools Used:** ChatGPT
+**AI Tools Used:** ChatGPT, Gemini (Antigravity IDE)
 
 **How AI Was Used:**
 
