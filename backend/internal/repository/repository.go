@@ -86,8 +86,9 @@ func (r *Repository) GetApplicationByID(id int) (*models.Application, error) {
 }
 
 func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application, error) {
+	// Exclude attachment_data for performance (not needed in list views)
 	query := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
 		WHERE a.owner_id = $1 AND a.is_deleted = false
@@ -102,7 +103,7 @@ func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, err
@@ -113,8 +114,9 @@ func (r *Repository) GetApplicationsByOwnerID(ownerID int) ([]models.Application
 }
 
 func (r *Repository) GetAllApplications() ([]models.Application, error) {
+	// Exclude attachment_data for performance (not needed in list views)
 	query := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '')
 		FROM applications a
 		JOIN users u ON a.owner_id = u.id
 		WHERE a.is_deleted = false
@@ -129,7 +131,7 @@ func (r *Repository) GetAllApplications() ([]models.Application, error) {
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, err
@@ -173,9 +175,9 @@ func (r *Repository) GetReviewerQueuePaginated(page, limit int, search, statusFi
 		return nil, 0, err
 	}
 
-	// Data query
+	// Data query — exclude attachment_data for performance (not needed in queue list)
 	dataQuery := `
-		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), COALESCE(a.attachment_data, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '') ` + baseQuery + `
+		SELECT a.id, a.title, a.category, a.description, a.amount, a.status, a.owner_id, u.name as owner_name, COALESCE(a.attachment_name, ''), a.created_at, a.updated_at, a.approval_date, COALESCE(a.digital_signature, '') ` + baseQuery + `
 		ORDER BY a.created_at DESC
 		LIMIT $` + strconv.Itoa(argCounter) + ` OFFSET $` + strconv.Itoa(argCounter+1)
 	
@@ -191,7 +193,7 @@ func (r *Repository) GetReviewerQueuePaginated(page, limit int, search, statusFi
 	for rows.Next() {
 		var app models.Application
 		err := rows.Scan(
-			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.AttachmentData, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
+			&app.ID, &app.Title, &app.Category, &app.Description, &app.Amount, &app.Status, &app.OwnerID, &app.OwnerName, &app.AttachmentName, &app.CreatedAt, &app.UpdatedAt, &app.ApprovalDate, &app.DigitalSignature,
 		)
 		if err != nil {
 			return nil, 0, err

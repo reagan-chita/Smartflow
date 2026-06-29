@@ -1179,13 +1179,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user]);
 
-  // Re-fetch when filter changes for reviewer
+  // Re-fetch when filter changes for reviewer, or when navigating to queue/dashboard
   useEffect(() => {
-    if (user && hasPermission('applications:review')) {
+    if (user && hasPermission('applications:review') && (currentView === 'queue' || currentView === 'dashboard')) {
       Promise.resolve().then(() => fetchApplications());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewerFilter, queuePage, queueSearch]);
+  }, [reviewerFilter, queuePage, queueSearch, currentView]);
 
   // Auth operations
   const handleLogin = async (email, password) => {
@@ -1935,8 +1935,6 @@ export default function App() {
                   if (user && user.role === 'reviewer') {
                     if (reviewerFilter !== 'all') {
                       setReviewerFilter('all');
-                    } else {
-                      fetchApplications();
                     }
                   } else {
                     fetchApplications();
@@ -1973,8 +1971,6 @@ export default function App() {
                     onClick={() => {
                       if (reviewerFilter !== 'all') {
                         setReviewerFilter('all');
-                      } else {
-                        fetchApplications();
                       }
                       setSelectedApp(null);
                       setCurrentView('queue');
@@ -2256,8 +2252,6 @@ export default function App() {
                     onClick={() => {
                       if (reviewerFilter !== 'all') {
                         setReviewerFilter('all');
-                      } else {
-                        fetchApplications();
                       }
                       setSelectedApp(null);
                       setCurrentView('queue');
@@ -3082,7 +3076,7 @@ export default function App() {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <button
-                  onClick={() => { setCurrentView('dashboard'); fetchApplications(); }}
+                  onClick={() => { setCurrentView('dashboard'); }}
                   className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
                 >
                   <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -3825,7 +3819,7 @@ export default function App() {
           <div className="max-w-5xl mx-auto animate-fade-in space-y-6">
             <div className="flex items-center justify-between">
               <button
-                onClick={() => { setCurrentView('queue'); fetchApplications(); setSelectedApp(null); }}
+                onClick={() => { setCurrentView('queue'); setSelectedApp(null); }}
                 className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
                 <svg className="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
