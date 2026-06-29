@@ -248,6 +248,7 @@ export default function App() {
 
   // Profile Dropdown state
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Theme state
   const [themeColor, setThemeColor] = useState(() => {
@@ -1924,10 +1925,12 @@ export default function App() {
       {/* Top Navbar */}
       {user && (
         <header className="border-b border-white/5 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex flex-col sm:flex-row items-center gap-4 md:gap-6 w-full md:w-auto">
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 md:py-4">
+            <div className="flex items-center justify-between gap-3">
+              {/* Left: Logo + Desktop Nav */}
+              <div className="flex items-center gap-3 md:gap-6 flex-shrink-0">
               <div
-                className="flex items-center gap-2 font-bold text-lg text-indigo-400 cursor-pointer flex-shrink-0 justify-center sm:justify-start w-full sm:w-auto"
+                className="flex items-center gap-2 font-bold text-lg text-indigo-400 cursor-pointer flex-shrink-0"
                 onClick={() => {
                   if (user && user.role === 'reviewer') {
                     if (reviewerFilter !== 'all') {
@@ -1940,15 +1943,17 @@ export default function App() {
                   }
                   setCurrentView('dashboard');
                   setSelectedApp(null);
+                  setIsMobileMenuOpen(false);
                 }}
               >
                 <div className="bg-white/5 p-1 rounded-lg border border-white/10 hover:border-indigo-500/30 transition-all flex items-center justify-center">
                   <OpenOwnershipLogo className="h-6 w-auto text-white" />
                 </div>
-                <span className="text-sm font-bold tracking-tight text-slate-200">Dashboard</span>
+                <span className="text-sm font-bold tracking-tight text-slate-200 hidden sm:inline">Dashboard</span>
               </div>
 
-              <div className="flex flex-wrap items-center justify-center gap-2">
+              {/* Desktop Nav Links */}
+              <div className="hidden md:flex items-center gap-2">
                 {hasPermission('applications:create') && (
                   <div
                     onClick={() => {
@@ -2056,15 +2061,16 @@ export default function App() {
                     )}
                   </div>
                 )}
+                </div>
               </div>
-            </div>
 
-            <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 md:gap-4 relative w-full md:w-auto">
-              {showWelcome && (
-                <span className={`text-sm font-medium text-slate-300 transition-opacity duration-500 ease-in-out text-center sm:text-left ${welcomeVisible ? 'opacity-100' : 'opacity-0'}`}>
-                  Welcome, <span className="font-bold text-white">{user.name}</span> <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 uppercase font-mono">{user.role}</span>
-                </span>
-              )}
+              {/* Right: Actions + Hamburger */}
+              <div className="flex items-center gap-2 md:gap-3 relative">
+                {showWelcome && (
+                  <span className={`hidden lg:inline text-sm font-medium text-slate-300 transition-opacity duration-500 ease-in-out ${welcomeVisible ? 'opacity-100' : 'opacity-0'}`}>
+                    Welcome, <span className="font-bold text-white">{user.name}</span> <span className="text-xs text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 uppercase font-mono">{user.role}</span>
+                  </span>
+                )}
 
               {/* Notification Center Bell */}
               <div className="relative">
@@ -2086,7 +2092,7 @@ export default function App() {
                 {isNotifOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsNotifOpen(false)}></div>
-                    <div className="absolute right-0 mt-2 w-80 rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-lg shadow-2xl p-4 z-20 space-y-3 animate-fade-in text-xs">
+                    <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-80 max-w-80 rounded-xl border border-white/10 bg-slate-950/95 backdrop-blur-lg shadow-2xl p-4 z-20 space-y-3 animate-fade-in text-xs">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
                         <span className="font-bold text-white text-sm">Notifications</span>
                         {unreadCount > 0 && (
@@ -2207,7 +2213,134 @@ export default function App() {
                   </>
                 )}
               </div>
+
+                {/* Hamburger Menu Button (Mobile Only) */}
+                <button
+                  onClick={() => setIsMobileMenuOpen(prev => !prev)}
+                  className="md:hidden flex items-center justify-center w-9 h-9 rounded-full bg-slate-900 border border-white/10 hover:bg-white/20 transition-all text-slate-300 hover:text-white cursor-pointer"
+                  aria-label="Toggle menu"
+                >
+                  {isMobileMenuOpen ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
+
+            {/* Mobile Navigation Drawer */}
+            {isMobileMenuOpen && (
+              <div className="md:hidden border-t border-white/5 mt-3 pt-3 pb-1 space-y-2 animate-fade-in">
+                {hasPermission('applications:create') && (
+                  <div
+                    onClick={() => {
+                      setSelectedApp(null);
+                      setCurrentView('applications');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-2.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <svg className="w-4 h-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+                    </svg>
+                    Applications
+                  </div>
+                )}
+                {hasPermission('applications:review') && (
+                  <div
+                    onClick={() => {
+                      if (reviewerFilter !== 'all') {
+                        setReviewerFilter('all');
+                      } else {
+                        fetchApplications();
+                      }
+                      setSelectedApp(null);
+                      setCurrentView('queue');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-2.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <svg className="w-4 h-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+                    </svg>
+                    Reviewer Queue
+                  </div>
+                )}
+                {hasPermission('users:manage') && (
+                  <div
+                    onClick={() => {
+                      setSelectedApp(null);
+                      setCurrentView('users');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-2.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <svg className="w-4 h-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    User Management
+                  </div>
+                )}
+                <div
+                  onClick={() => {
+                    setSelectedApp(null);
+                    setLoginAuditSearch('');
+                    setLoginAuditStartDate('');
+                    setLoginAuditEndDate('');
+                    setLoginAuditPage(1);
+                    setLoadingLoginAudit(true);
+                    appFetch(`${API_BASE}/login-audit-logs`)
+                      .then(r => r.json())
+                      .then(d => { setLoginAuditLogs(Array.isArray(d) ? d : []); })
+                      .catch(() => {})
+                      .finally(() => setLoadingLoginAudit(false));
+                    setCurrentView('audit-logs-login');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-2.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Login Activity
+                </div>
+                <div
+                  onClick={() => {
+                    setSelectedApp(null);
+                    setCurrentView('audit-logs');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className="text-indigo-400 hover:text-indigo-300 font-semibold text-xs py-2.5 px-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors flex items-center gap-2 cursor-pointer"
+                >
+                  <svg className="w-4 h-4 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  System Audit
+                </div>
+                <div className="border-t border-white/5 pt-2 mt-2 flex items-center justify-between">
+                  <span className="text-xs text-slate-400">
+                    <span className="font-bold text-white">{user.name}</span> · <span className="text-indigo-400 font-mono uppercase text-[10px]">{user.role}</span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      handleLogout();
+                    }}
+                    className="text-rose-400 hover:text-rose-300 font-semibold text-xs py-1.5 px-3 rounded-lg bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+                    </svg>
+                    Logout
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </header>
       )}
@@ -2984,7 +3117,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div className="relative w-64">
+              <div className="relative w-full sm:w-64">
                 <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <input
                   type="text"
@@ -3488,7 +3621,7 @@ export default function App() {
         {/* View 4: Applicant Application Details Page */}
         {currentView === 'details' && user && selectedApp && (
           <div className="max-w-4xl mx-auto animate-fade-in space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <button
                 onClick={() => { setCurrentView('applications'); fetchApplications(); setSelectedApp(null); }}
                 className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
@@ -3500,7 +3633,7 @@ export default function App() {
               </button>
 
               {(selectedApp.status === 'DRAFT' || selectedApp.status === 'RETURNED') && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     className="bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer"
                     onClick={() => handleOpenEditForm(selectedApp)}
@@ -3540,7 +3673,7 @@ export default function App() {
                     {renderStatusBadge(selectedApp.status)}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-y border-white/5 py-4">
                     <div>
                       <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Amount Requested</span>
                       <div className="text-lg font-mono font-bold text-indigo-300 mt-1">{formatCurrency(selectedApp.amount)}</div>
@@ -3717,7 +3850,7 @@ export default function App() {
                     {renderStatusBadge(selectedApp.status)}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-y border-white/5 py-4">
                     <div>
                       <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">Amount Requested</span>
                       <div className="text-lg font-mono font-bold text-indigo-300 mt-1">{formatCurrency(selectedApp.amount)}</div>
