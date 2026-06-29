@@ -60,21 +60,21 @@ The project is deployed and live at:
 * Automatic record creation on every status change in `audit_logs` showing timestamp, operator, transition path, and comment.
 * Paginated and searchable **Login Activity Audit Log** tracking login sessions, IP addresses, and user-agents.
 
-11. **Revision History Thread (GitHub PR Style)**:
+1. **Revision History Thread (GitHub PR Style)**:
     * When an application is bounced back and forth between RETURNED and SUBMITTED, a chronological "Activity Thread" is generated on the application detail view. This distinct thread highlights reviewer-applicant conversation separate from system-level logs.
-12. **PDF Certificate Export**:
+2. **PDF Certificate Export**:
     * Once an application reaches the APPROVED status, users can dynamically generate and download a client-side PDF certificate (via `jsPDF` & `autoTable`) decorated with official typography, gold borders, Open Ownership branding, and structured data tables.
-13. **Background Job Processing (Email Queue)**:
+3. **Background Job Processing (Email Queue)**:
     * Event-driven architecture utilizes native Go concurrency (Channels and Goroutines). When a status changes, a mock "Send Email" job is dispatched to a non-blocking asynchronous worker queue rather than delaying the HTTP response cycle.
-14. **API Security: Rate Limiting**:
+4. **API Security: Rate Limiting**:
     * Token-bucket rate limiting middleware (using `sync.Mutex`) specifically protects sensitive endpoints (`/api/login`, `/api/login/mfa`) against brute-force attacks by limiting the number of requests per minute per IP address.
-15. **Digital Signatures & Approval Dates**:
+5. **Digital Signatures & Approval Dates**:
     * Reviewers can optionally draw their signature on a custom HTML5 Signature Pad canvas during the approval process. The drawn signature and the server-side approval timestamp are permanently stored and dynamically embedded directly into the generated PDF Certificate.
-16. **Attachment Auditing**:
+6. **Attachment Auditing**:
     * The database audit log tracks and visually displays when an applicant creates or updates their application with a file attachment, preserving historical context of document submissions.
-17. **Real-Time Server-Sent Events (SSE)**:
+7. **Real-Time Server-Sent Events (SSE)**:
     * In-app notifications are pushed instantly to connected clients using a custom pure Go SSE Broker. This event-driven architecture eliminates heavy REST API polling, drastically reducing database load while providing a true real-time user experience.
-18. **Componentization & E2E Testing**:
+8. **Componentization & E2E Testing**:
     * The React architecture isolates complex sub-views into distinct components (e.g. `SignaturePad.tsx`). The critical authentication and authorization flow is rigorously covered by a fully automated Cypress End-to-End headless browser testing suite.
 
 ---
@@ -436,7 +436,7 @@ While the core assessment requirements and stretch goals are fully met, scaling 
 
 **AI-Assisted Development Disclosure**
 
-**AI Tools Used:** ChatGPT, Gemini & Claude (via Antigravity IDE)
+**AI Tools Used:** ChatGPT, Antigravity IDE.
 
 **How AI Was Used:**
 
