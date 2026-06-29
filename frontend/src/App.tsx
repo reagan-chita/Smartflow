@@ -1891,7 +1891,7 @@ export default function App() {
         </div>
       )}
       {/* Toast Notification Stack */}
-      <div className="fixed top-5 right-5 z-50 flex flex-col gap-3 pointer-events-none w-full max-w-sm">
+      <div className="fixed top-5 right-5 z-[100] flex flex-col gap-3 pointer-events-none w-full max-w-sm">
         {toasts.map(t => (
           <div
             key={t.id}
